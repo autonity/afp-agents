@@ -1,0 +1,9 @@
+[build]
+builder = "nixpacks"
+nixpacksConfigPath = "nixpacks.toml"
+watchPatterns = ["liquidation/*"]
+
+[deploy]
+startCommand = "uv run -m liquidation"
+restartPolicyType = "NEVER"
+cronSchedule = "5 * * * *"

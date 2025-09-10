@@ -1,0 +1,9 @@
+[build]
+builder = "nixpacks"
+nixpacksConfigPath = "nixpacks.toml"
+watchPatterns = ["closeout/*"]
+
+[deploy]
+startCommand = "uv run -m closeout"
+restartPolicyType = "NEVER"
+cronSchedule = "5 * * * *"

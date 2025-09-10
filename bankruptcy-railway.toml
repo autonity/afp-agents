@@ -1,0 +1,9 @@
+[build]
+builder = "nixpacks"
+nixpacksConfigPath = "nixpacks.toml"
+watchPatterns = ["bankruptcy/*"]
+
+[deploy]
+startCommand = "uv run -m bankruptcy"
+restartPolicyType = "NEVER"
+cronSchedule = "5 * * * *"
