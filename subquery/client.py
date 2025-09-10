@@ -1,24 +1,26 @@
 import logging
+from typing import List, Tuple
+
+from eth_typing import ChecksumAddress
 from gql import Client
 from gql.transport.aiohttp import AIOHTTPTransport
 from gql.transport.aiohttp import log as requests_logger
-from eth_typing import ChecksumAddress
 from hexbytes import HexBytes
-from typing import List, Tuple
 
-from subquery.model import AccountInfo, Account, ProductInfo
-from subquery.query import (
-    margin_accounts_query,
+from .model import Account, AccountInfo, ProductInfo
+from .query import (
     accounts_in_product_query,
-    products_query,
-    active_accounts_query,
-    products_with_fsp_passed_query,
-    last_trade_block_query,
     accounts_in_window_query,
+    active_accounts_query,
     holders_of_query,
+    last_trade_block_query,
+    margin_accounts_query,
+    products_query,
+    products_with_fsp_passed_query,
 )
 
 requests_logger.setLevel(logging.ERROR)  # Suppress requests logging for cleaner output
+
 
 class AutSubquery:
     def __init__(self, url: str):

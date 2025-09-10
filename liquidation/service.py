@@ -1,15 +1,15 @@
 import logging
 import math
-import os
 from decimal import Decimal
 
 import afp.bindings
 from eth_typing import ChecksumAddress
 from web3 import Web3
 
-from liquidation.bid import BidStrategy
-from liquidation.model import Position, Step, TransactionStep
 from subquery.client import AutSubquery
+
+from .bid import BidStrategy
+from .model import Position, Step, TransactionStep
 
 logger = logging.getLogger(__name__)
 

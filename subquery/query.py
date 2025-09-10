@@ -1,11 +1,11 @@
-from typing import Callable, Dict, Any, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 from eth_typing import ChecksumAddress
-from hexbytes import HexBytes
 from gql import gql
 from graphql import DocumentNode
+from hexbytes import HexBytes
 
-from subquery.model import AccountInfo, Account, ProductInfo
+from .model import Account, AccountInfo, ProductInfo
 
 
 def margin_accounts_query() -> (

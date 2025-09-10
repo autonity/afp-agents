@@ -1,12 +1,13 @@
-from abc import abstractmethod, ABC
+from abc import ABC, abstractmethod
 from decimal import Decimal
 from typing import Callable
-from hexbytes import HexBytes
 
 import afp.bindings
+from hexbytes import HexBytes
 
-from liquidation.model import Position
 from utils import parse_decimal
+
+from .model import Position
 
 
 class BidStrategy(ABC):

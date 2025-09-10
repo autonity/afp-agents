@@ -9,11 +9,12 @@ from eth_account.account import Account
 from web3 import HTTPProvider, Web3
 from web3.middleware import Middleware, SignAndSendRawMiddlewareBuilder
 
-from liquidation.bid import FullLiquidationPercentMAEStrategy
-from liquidation.reseller import Reseller
-from liquidation.service import LiquidationService
-from utils import format_int, wait_for_blocks
 from subquery.client import AutSubquery
+from utils import format_int, wait_for_blocks
+
+from .bid import FullLiquidationPercentMAEStrategy
+from .reseller import Reseller
+from .service import LiquidationService
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(

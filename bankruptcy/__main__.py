@@ -1,15 +1,14 @@
 import logging
 import os
-
 from typing import cast
 
 from eth_account.account import Account
 from web3 import HTTPProvider, Web3
 from web3.middleware import Middleware, SignAndSendRawMiddlewareBuilder
 
-from bankruptcy.service import BankruptcyService
 from subquery.client import AutSubquery
 
+from .service import BankruptcyService
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -20,6 +19,7 @@ logging.basicConfig(
 PRIVATE_KEY = os.environ["PRIVATE_KEY"]
 RPC_URL = os.environ["RPC_URL"]
 SUBQUERY_URL = os.environ["SUBQUERY_URL"]
+
 
 def main():
     sq = AutSubquery(url=SUBQUERY_URL)
@@ -36,7 +36,9 @@ def main():
     for account in accounts:
         logger.info("%s - processing bankruptcy", account.account_id)
         account.populate()
-        logger.info("%s - number of positions %d", account.account_id, len(account.positions))
+        logger.info(
+            "%s - number of positions %d", account.account_id, len(account.positions)
+        )
 
         tx = account.start_loss_mutualization()
         logger.info(
@@ -52,6 +54,7 @@ def main():
             receipt.blockNumber,
         )
     logger.info("Bankruptcy submitted for %d margin accounts", len(accounts))
+
 
 if __name__ == "__main__":
     main()
