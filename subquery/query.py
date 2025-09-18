@@ -144,11 +144,14 @@ def products_with_fsp_passed_query(
             }}) {{
                 nodes {{
                     id
-                    name
+                    symbol
                     state
                     earliestFSPSubmissionTime
                     tradeoutInterval
-                    fsp
+                    fsp {{
+                        fsp
+                        blockNumber
+                    }}
                 }}
             }}
         }}
@@ -158,11 +161,11 @@ def products_with_fsp_passed_query(
         return [
             ProductInfo(
                 id=product["id"],
-                name=product["name"],
+                name=product["symbol"],
                 state=product["state"],
                 earliest_fsp_submission_time=int(product["earliestFSPSubmissionTime"]),
                 tradeout_interval=int(product["tradeoutInterval"]),
-                fsp=int(product["fsp"]),
+                fsp=int(product["fsp"]["fsp"] if product["fsp"] else 0),
             )
             for product in result["products"]["nodes"]
         ]
