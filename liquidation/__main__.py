@@ -9,6 +9,9 @@ from eth_account.account import Account
 from web3 import HTTPProvider, Web3
 from web3.middleware import Middleware, SignAndSendRawMiddlewareBuilder
 
+import notifications
+from notifications import get_notifier
+from notifications.utils import format_link
 from subquery.client import AutSubquery
 from utils import format_int, wait_for_blocks
 
@@ -22,12 +25,15 @@ logging.basicConfig(
     level=logging.INFO,
 )
 
+notifier = get_notifier()
+
 PRIVATE_KEY = os.environ["PRIVATE_KEY"]
 RPC_URL = os.environ["RPC_URL"]
 SUBQUERY_URL = os.environ["SUBQUERY_URL"]
 
 # This implies we take 10% of the MAE when liquidating
 DMAE = Decimal("0.1")
+
 
 def main():
     sq = AutSubquery(url=SUBQUERY_URL)
@@ -50,14 +56,16 @@ def main():
     for account in accounts:
         logger.info("%s - processing Liquidation", account.account_id)
         account.populate()
-        logger.info("%s - number of positions %d", account.account_id, len(account.positions))
+        logger.info(
+            "%s - number of positions %d", account.account_id, len(account.positions)
+        )
 
         if account.start_liquidation():
             logger.info("%s - requested liquidation", account.account_id)
         else:
             logger.info("%s - liquidation already in progress", account.account_id)
 
-        current_block = w3.eth.get_block('latest')["number"]
+        current_block = w3.eth.get_block("latest")["number"]
         logger.info(
             "%s - auction started at %s, duration %s, current block %s",
             account.account_id,
@@ -75,13 +83,17 @@ def main():
             format_int(account.auction_data.mae_now, 18),
         )
         clearing = bindings.ClearingDiamond(w3)
-        mae_offered = clearing.max_mae_offered(account.account_id, account.collateral_asset, account.auction_data.mmu_now)
+        mae_offered = clearing.max_mae_offered(
+            account.account_id, account.collateral_asset, account.auction_data.mmu_now
+        )
         logger.info(
             "%s - max MAE offered: %s",
             account.account_id,
             format_int(mae_offered, 18),
         )
-        bids = FullLiquidationPercentMAEStrategy(DMAE, reseller.validate_position).construct_bids(account.positions)
+        bids = FullLiquidationPercentMAEStrategy(
+            DMAE, reseller.validate_position
+        ).construct_bids(account.positions)
         mae_check_failed, mae_over_mmu_exceeded = clearing.mae_check_on_bid(
             w3.eth.default_account,
             account.account_id,
@@ -102,16 +114,43 @@ def main():
             blocks_to_wait,
         )
         wait_for_blocks(w3, blocks_to_wait)
-        account.bid_liquidation(FullLiquidationPercentMAEStrategy(DMAE, reseller.validate_position))
+        account.bid_liquidation(
+            FullLiquidationPercentMAEStrategy(DMAE, reseller.validate_position)
+        )
+
+    if len(accounts) > 0:
+        content = f"Liquidation processed for {len(accounts)} margin accounts"
+        notify_data = [
+            notifications.NotificationItem(
+                title=f"Account {account.account_id} liquidated",
+                values={
+                    "Account ID": account.account_id,
+                    "Collateral Asset": account.collateral_asset,
+                    "MMU Now": format_int(account.auction_data.mmu_now, 18),
+                    "MAE Now": format_int(account.auction_data.mae_now, 18),
+                    "Positions": str(len(account.positions)),
+                },
+            )
+            for account in accounts
+        ]
+        notifier.notify(
+            "Margin Accounts Liquidated",
+            content,
+            notify_data,
+        )
 
     logger.info("Liquidation bids submitted for %d margin accounts", len(accounts))
     # Here we check all margin accounts for positions, just in case some accounts were not liquidated
     # in previous runs
     reseller.populate()
     reseller.sell()
-    logger.info("Reseller sold all positions for %d margin accounts", len(reseller.margin_accounts))
+    logger.info(
+        "Reseller sold all positions for %d margin accounts",
+        len(reseller.margin_accounts),
+    )
     logger.info("Orders submitted: %d", len(reseller.orders))
     reseller.wait_for_orders(timedelta(minutes=1), timedelta(seconds=1))
+
 
 if __name__ == "__main__":
     main()
