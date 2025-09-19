@@ -1,17 +1,21 @@
 import logging
 import math
 from decimal import Decimal
+from typing import Tuple
 
 import afp.bindings
 from eth_typing import ChecksumAddress
 from web3 import Web3
 
+import subquery.model
 from subquery.client import AutSubquery
 
 from .bid import BidStrategy
 from .model import Position, Step, TransactionStep
 
 logger = logging.getLogger(__name__)
+
+MAX_ACCOUNT_FETCH = 50
 
 
 class LiquidatingAccountContext:
@@ -39,13 +43,13 @@ class LiquidatingAccountContext:
     transaction_steps: list[TransactionStep]
 
     def __init__(
-            self,
-            w3: Web3,
-            account_id: ChecksumAddress,
-            collateral_asset: ChecksumAddress,
-            margin_account: ChecksumAddress,
-            auction_duration: int,
-            restoration_buffer: Decimal,
+        self,
+        w3: Web3,
+        account_id: ChecksumAddress,
+        collateral_asset: ChecksumAddress,
+        margin_account: ChecksumAddress,
+        auction_duration: int,
+        restoration_buffer: Decimal,
     ):
         """
         Initialize the LiquidatingAccountContext.
@@ -84,9 +88,13 @@ class LiquidatingAccountContext:
             tick_size = product_registry.tick_size(position)
             self.positions.append(Position(position_data, mark_price, tick_size))
         clearing = afp.bindings.ClearingDiamond(self.w3)
-        self.is_liquidating = clearing.is_liquidating(self.account_id, self.collateral_asset)
+        self.is_liquidating = clearing.is_liquidating(
+            self.account_id, self.collateral_asset
+        )
         if self.is_liquidating:
-            self.auction_data = clearing.auction_data(self.account_id, self.collateral_asset)
+            self.auction_data = clearing.auction_data(
+                self.account_id, self.collateral_asset
+            )
 
     def is_transaction_submitted(self, step: Step) -> bool:
         """
@@ -115,10 +123,14 @@ class LiquidatingAccountContext:
         clearing = afp.bindings.ClearingDiamond(self.w3)
         fn = clearing.request_liquidation(self.account_id, self.collateral_asset)
         tx_hash = fn.transact()
-        self.transaction_steps.append(TransactionStep(Step.REQUEST_LIQUIDATION, tx_hash))
+        self.transaction_steps.append(
+            TransactionStep(Step.REQUEST_LIQUIDATION, tx_hash)
+        )
         self.w3.eth.wait_for_transaction_receipt(tx_hash)
         self.is_liquidating = True
-        self.auction_data = clearing.auction_data(self.account_id, self.collateral_asset)
+        self.auction_data = clearing.auction_data(
+            self.account_id, self.collateral_asset
+        )
         return True
 
     def bid_liquidation(self, strategy: BidStrategy) -> bool:
@@ -139,14 +151,24 @@ class LiquidatingAccountContext:
         clearing = afp.bindings.ClearingDiamond(self.w3)
         bids = strategy.construct_bids(self.positions)
         if len(bids) == 0:
-            logger.info("%s - no valid bids constructed, skipping liquidation", self.account_id)
+            logger.info(
+                "%s - no valid bids constructed, skipping liquidation", self.account_id
+            )
             return False
         fn = clearing.bid_auction(self.account_id, self.collateral_asset, bids)
         tx_hash = fn.transact()
-        logger.info("%s - bidding on liquidation auction with tx %s", self.account_id, tx_hash.hex())
+        logger.info(
+            "%s - bidding on liquidation auction with tx %s",
+            self.account_id,
+            tx_hash.hex(),
+        )
         self.transaction_steps.append(TransactionStep(Step.BID_AUCTION, tx_hash))
         receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
-        logging.info("%s - liquidation tx mined in block %d", self.account_id, receipt["blockNumber"])
+        logging.info(
+            "%s - liquidation tx mined in block %d",
+            self.account_id,
+            receipt["blockNumber"],
+        )
         logger.info("%s - liquidation processed", self.account_id)
         return True
 
@@ -163,7 +185,7 @@ class LiquidatingAccountContext:
         """
         if self.auction_data is None:
             raise RuntimeError("Call populate() before calculating wait time.")
-        current_block = self.w3.eth.get_block('latest')["number"]
+        current_block = self.w3.eth.get_block("latest")["number"]
         if current_block - self.auction_data.start_block > self.auction_duration:
             # Auction duration has already passed
             return 0
@@ -214,23 +236,30 @@ class LiquidationService:
             list[LiquidatingAccountContext]: List of contexts for liquidatable accounts.
         """
         accounts, _ = self.client.active_accounts()
-        clearing = afp.bindings.ClearingDiamond(self.w3)
+        account_details = self.fetch_account_details(accounts)
 
         logger.info("Found %d active accounts", len(accounts))
         liquidatable_accounts = []
-        for acct in accounts:
+        for acct, details in account_details:
             logger.info("Checking account %s", acct.account_id)
-            if not clearing.is_liquidatable(acct.account_id, acct.collateral_asset):
-                logger.info("Account %s is not liquidatable", acct.account_id)
+            mae = details.mae
+            mmu = details.mmu
+            if mae >= mmu:
+                logger.info(
+                    "Account %s not liquidatable: MAE %s >= MMU %s",
+                    acct.account_id,
+                    f"{Decimal(mae) / Decimal(10**18):,.2f}",
+                    f"{Decimal(mmu) / Decimal(10**18):,.2f}",
+                )
                 continue
 
             logger.info("Found liquidatable account %s", acct.account_id)
-
-            margin_account_contract = afp.bindings.MarginAccount(self.w3, acct.margin_account)
-            mae = margin_account_contract.mae(acct.account_id)
-            mmu = margin_account_contract.mmu(acct.account_id)
-            logger.info("Account (%s)\n\tMAE: %s\n\tMMU %s", acct.account_id, f"{Decimal(mae) / Decimal(10 ** 18):,.2f}",
-                        f"{Decimal(mmu) / Decimal(10 ** 18):,.2f}")
+            logger.info(
+                "Account (%s)\n\tMAE: %s\n\tMMU %s",
+                acct.account_id,
+                f"{Decimal(mae) / Decimal(10**18):,.2f}",
+                f"{Decimal(mmu) / Decimal(10**18):,.2f}",
+            )
 
             duration, buffer = self.auction_config()
             liquidatable_accounts.append(
@@ -246,6 +275,24 @@ class LiquidationService:
 
         return liquidatable_accounts
 
+    def fetch_account_details(
+        self, accounts: list[subquery.model.Account]
+    ) -> list[Tuple[subquery.model.Account, afp.bindings.UserMarginAccountData]]:
+        result = []
+        system_viewer = afp.bindings.SystemViewer(self.w3)
+        grouped = group_by_collateral(accounts)
+        for collateral, accounts in grouped.items():
+            account_data = []
+            for i in range(0, len(accounts), MAX_ACCOUNT_FETCH):
+                batch = accounts[i : i + MAX_ACCOUNT_FETCH]
+                account_data.extend(
+                    system_viewer.user_margin_data_by_collateral_asset(
+                        collateral, [item.account_id for item in batch]
+                    )
+                )
+            result.extend(zip(accounts, account_data))
+        return result
+
     def auction_config(self) -> tuple[int, Decimal]:
         """
         Retrieve the auction configuration parameters.
@@ -253,12 +300,26 @@ class LiquidationService:
         Returns:
             tuple[int, Decimal]: Duration of the liquidation period and restoration buffer.
         """
-        if self.liquidation_duration is not None and self.restoration_buffer is not None:
+        if (
+            self.liquidation_duration is not None
+            and self.restoration_buffer is not None
+        ):
             return self.liquidation_duration, self.restoration_buffer
 
         clearing = afp.bindings.ClearingDiamond(self.w3)
         cfg = clearing.auction_config()
         self.liquidation_duration = cfg.liquidation_duration
-        self.restoration_buffer = Decimal(cfg.restoration_buffer) / Decimal(10 ** 4)
+        self.restoration_buffer = Decimal(cfg.restoration_buffer) / Decimal(10**4)
 
         return self.liquidation_duration, self.restoration_buffer
+
+
+def group_by_collateral(
+    accounts: list[subquery.model.Account],
+) -> dict[ChecksumAddress, list[subquery.model.Account]]:
+    result: dict[ChecksumAddress, list[subquery.model.Account]] = {}
+    for acct in accounts:
+        if acct.collateral_asset not in result:
+            result[acct.collateral_asset] = []
+        result[acct.collateral_asset].append(acct)
+    return result

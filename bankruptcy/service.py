@@ -6,9 +6,12 @@ from eth_typing import ChecksumAddress
 from hexbytes import HexBytes
 from web3 import Web3
 
+import subquery.model
 from subquery.client import AutSubquery
 
 logger = logging.getLogger(__name__)
+
+MAX_ACCOUNT_FETCH = 50
 
 
 class BankruptAccountContext:
@@ -52,38 +55,18 @@ class BankruptAccountContext:
         account_id: ChecksumAddress,
         collateral_asset: ChecksumAddress,
         margin_account: ChecksumAddress,
+        positions: list[afp.bindings.PositionData],
     ):
         self.w3 = w3
         self.client = client
         self.account_id = account_id
         self.collateral_asset = collateral_asset
         self.margin_account = margin_account
-        self.positions = []
-
-    def populate(self) -> None:
-        """
-        Loads all positions for the current account from the margin account contract.
-
-        This method fetches the list of position identifiers for the account and retrieves detailed position data
-        for each, storing them in `self.positions`.
-
-        Raises
-        ------
-        Exception
-            If unable to fetch positions or position data.
-        """
-        margin_account = afp.bindings.MarginAccount(self.w3, self.margin_account)
-        positions = margin_account.positions(self.account_id)
-        self.positions = [
-            margin_account.position_data(self.account_id, position)
-            for position in positions
-        ]
+        self.positions = positions
 
     def start_loss_mutualization(self) -> HexBytes:
         """
         Initiates the loss mutualization process for the current bankrupt account.
-
-        Requires that `populate()` has been called to load positions.
 
         This method calls the clearing contract to distribute losses across Loss Absorbing Accounts (LAAs)
         for each position held by the bankrupt account, executing the mutualization transaction on-chain.
@@ -119,7 +102,7 @@ class BankruptAccountContext:
         Raises
         ------
         Exception
-            If no positions are found or `populate()` has not been called.
+            If no positions are found
         """
         if len(self.positions) == 0:
             raise Exception("No positions found, or populate() not called")
@@ -253,14 +236,16 @@ class BankruptcyService:
             List of contexts for each bankrupt account found.
         """
         accounts, _ = self.client.active_accounts()
+        system_viewer = afp.bindings.SystemViewer(self.w3)
+        maes = self.maes(accounts)
         logger.info("Found %d active accounts", len(accounts))
         bankrupt_accounts = []
-        for acct in accounts:
+        for i, acct in enumerate(accounts):
             logger.info("Checking account %s", acct.account_id)
             margin_account_contract = afp.bindings.MarginAccount(
                 self.w3, acct.margin_account
             )
-            mae = margin_account_contract.mae(acct.account_id)
+            mae = maes[i]
             if not (mae < 0):
                 logger.info("Account %s is not bankrupt", acct.account_id)
                 continue
@@ -278,15 +263,55 @@ class BankruptcyService:
                 f"{mae}",
                 f"{mmu}",
             )
+            bankrupt_accounts.append(acct)
 
-            bankrupt_accounts.append(
+        if len(bankrupt_accounts) == 0:
+            logger.info("No bankrupt accounts found")
+            return []
+
+        # the number of bankrupt accounts should be small enough that we can fetch
+        # positions in one go
+        positions = system_viewer.positions_by_collateral_assets(
+            [acct.collateral_asset for acct in bankrupt_accounts],
+            [acct.account_id for acct in bankrupt_accounts],
+        )
+        bankrupt_account_contexts = []
+        for i, acct in enumerate(bankrupt_accounts):
+            bankrupt_account_contexts.append(
                 BankruptAccountContext(
                     self.w3,
                     self.client,
                     acct.account_id,
                     acct.collateral_asset,
                     acct.margin_account,
+                    positions[i],
                 )
             )
 
-        return bankrupt_accounts
+        return bankrupt_account_contexts
+
+    def maes(self, accounts: List[subquery.model.Account]) -> List[int]:
+        """
+        Retrieves the MAE (Margin Account Equity) for a list of accounts.
+
+        Parameters
+        ----------
+        accounts : List[subquery.model.Account]
+            The accounts to query for MAE.
+
+        Returns
+        -------
+        List[int]
+            A list of MAE values corresponding to each account.
+        """
+        system_viewer = afp.bindings.SystemViewer(self.w3)
+        maes = []
+        for i in range(0, len(accounts), MAX_ACCOUNT_FETCH):
+            maes.extend(system_viewer.mae_by_collateral_assets(
+                [acct.collateral_asset for acct in accounts[i : i + MAX_ACCOUNT_FETCH]],
+                [acct.account_id for acct in accounts[i : i + MAX_ACCOUNT_FETCH]],
+            ))
+        return system_viewer.mae_by_collateral_assets(
+            [acct.collateral_asset for acct in accounts],
+            [acct.account_id for acct in accounts],
+        )

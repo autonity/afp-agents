@@ -34,6 +34,7 @@ class ClosingProductContext:
     client: AutSubquery
     w3: Web3
     product_id: HexBytes
+    symbol: str
     accounts: list[AccountInfo]
 
     def __init__(
@@ -41,10 +42,12 @@ class ClosingProductContext:
         w3: Web3,
         client: AutSubquery,
         product_id: HexBytes,
+        symbol: str = "",
     ):
         self.w3 = w3
         self.client = client
         self.product_id = product_id
+        self.symbol = symbol
 
     def populate(self) -> None:
         """
@@ -64,7 +67,9 @@ class ClosingProductContext:
         if len(self.accounts) == 0:
             logger.warning("%s - no accounts with open interest", self.product_id.hex())
             return
-        margin_account = afp.bindings.MarginAccount(self.w3, self.accounts[0].margin_account_address)
+        margin_account = afp.bindings.MarginAccount(
+            self.w3, self.accounts[0].margin_account_address
+        )
 
         accounts = []
         for info in self.accounts:
@@ -93,7 +98,9 @@ class ClosingProductContext:
             )
             raise RuntimeError("Total quantity is not zero, cannot close out")
         else:
-            logger.info("%s - total quantity is zero, ready to close out", self.product_id.hex())
+            logger.info(
+                "%s - total quantity is zero, ready to close out", self.product_id.hex()
+            )
             self.accounts = accounts
 
     def start_closeout(self) -> HexBytes:
@@ -164,7 +171,10 @@ class CloseoutService:
 
         closeable_products = []
         for product in products:
-            if not product.earliest_fsp_submission_time + product.tradeout_interval < now:
+            if (
+                not product.earliest_fsp_submission_time + product.tradeout_interval
+                < now
+            ):
                 logger.info(
                     "%s - tradeout interval not passed, cannot close out",
                     product.name,
@@ -174,12 +184,17 @@ class CloseoutService:
                 logger.info("%s - no open interest, cannot close out", product.name)
                 continue
             (fsp, finalized) = clearing.get_fsp(HexBytes(product.id))
-            if fsp == 0 or not finalized:
+            if not finalized:
                 logger.info("%s - FSP not submitted, cannot close out", product.name)
+                continue
+            if fsp == 0:
+                logger.info("%s - FSP zero, cannot close out", product.name)
                 continue
             logger.info("%s - product is closeable with fsp = %d", product.name, fsp)
             closeable_products.append(
-                ClosingProductContext(self.w3, self.client, HexBytes(product.id))
+                ClosingProductContext(
+                    self.w3, self.client, HexBytes(product.id), product.name
+                )
             )
 
         return closeable_products
