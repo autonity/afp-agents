@@ -1,7 +1,7 @@
 [build]
 builder = "nixpacks"
 nixpacksConfigPath = "nixpacks.toml"
-watchPatterns = ["bankruptcy/*"]
+watchPatterns = ["bankruptcy/*", "pyproject.toml"]
 
 [deploy]
 startCommand = "uv run -m bankruptcy"

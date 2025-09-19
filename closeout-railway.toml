@@ -1,7 +1,7 @@
 [build]
 builder = "nixpacks"
 nixpacksConfigPath = "nixpacks.toml"
-watchPatterns = ["closeout/*"]
+watchPatterns = ["closeout/*", "pyproject.toml"]
 
 [deploy]
 startCommand = "uv run -m closeout"
