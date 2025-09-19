@@ -6,4 +6,4 @@ watchPatterns = ["bankruptcy/*", "pyproject.toml"]
 [deploy]
 startCommand = "uv run -m bankruptcy"
 restartPolicyType = "NEVER"
-cronSchedule = "* * * * *"
+cronSchedule = "*/5 * * * *"
