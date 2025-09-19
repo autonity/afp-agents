@@ -35,7 +35,6 @@ def main():
     logger.info("Found %d bankrupt accounts", len(accounts))
     for account in accounts:
         logger.info("%s - processing bankruptcy", account.account_id)
-        account.populate()
         logger.info(
             "%s - number of positions %d", account.account_id, len(account.positions)
         )

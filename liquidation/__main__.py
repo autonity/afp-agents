@@ -88,12 +88,13 @@ def main():
             account.collateral_asset,
             bids,
         )
-        logger.info(
-            "%s - MAE check failed: %s, MAE over MMU exceeded: %s",
-            account.account_id,
-            mae_check_failed,
-            mae_over_mmu_exceeded,
-        )
+        if mae_check_failed or mae_over_mmu_exceeded:
+            logger.info(
+                "%s - MAE check failed: %s, MAE over MMU exceeded: %s",
+                account.account_id,
+                mae_check_failed,
+                mae_over_mmu_exceeded,
+            )
         blocks_to_wait = account.wait_time_for(DMAE, Decimal("1.0"))
         logger.info(
             "%s - waiting for %s before liquidation",

@@ -174,8 +174,11 @@ class CloseoutService:
                 logger.info("%s - no open interest, cannot close out", product.name)
                 continue
             (fsp, finalized) = clearing.get_fsp(HexBytes(product.id))
-            if fsp == 0 or not finalized:
+            if not finalized:
                 logger.info("%s - FSP not submitted, cannot close out", product.name)
+                continue
+            if fsp == 0:
+                logger.info("%s - FSP zero, cannot close out", product.name)
                 continue
             logger.info("%s - product is closeable with fsp = %d", product.name, fsp)
             closeable_products.append(
