@@ -116,7 +116,7 @@ class Reseller:
             side = "ask" if position.quantity > 0 else "bid"
             good_until_time = datetime.datetime.fromtimestamp(
                 self.w3.eth.get_block("latest")["timestamp"]
-            ) + datetime.timedelta(hours=1)
+            ) + datetime.timedelta(minutes=5)
             limit_price = Decimal(position.mark_price) / Decimal(10**position.tick_size)
             quantity = abs(position.quantity)
             logger.info(
@@ -152,45 +152,3 @@ class Reseller:
                 side,
             )
             self.orders.append(order)
-
-    def wait_for_orders(
-        self,
-        wait_time: timedelta = timedelta(seconds=30),
-        polling_interval: timedelta = timedelta(seconds=5),
-    ) -> None:
-        """
-        Wait for all orders to be filled. If they aren't filled within the wait time, cancel them.
-
-        Args:
-            wait_time (timedelta, optional): Maximum time to wait for orders to be filled.
-            polling_interval (timedelta, optional): Interval between polling for open orders.
-
-        Returns:
-            None
-        """
-        if len(self.orders) == 0:
-            logger.info("No orders to wait for. Exiting wait.")
-            return
-        open_orders = self.trading.open_orders()
-        while len(open_orders) != len(self.orders):
-            logger.info(
-                "Waiting for all orders to be submitted. Current open orders: %d, expected: %d",
-                len(open_orders),
-                len(self.orders),
-            )
-            time.sleep(polling_interval.total_seconds())
-            open_orders = self.trading.open_orders()
-        end_time = datetime.datetime.now() + wait_time
-        while datetime.datetime.now() < end_time and len(open_orders) > 0:
-            logger.info("Waiting for orders to be filled...")
-            time.sleep(polling_interval.total_seconds())
-            open_orders = self.trading.open_orders()
-        if len(open_orders) > 0:
-            logger.warning(
-                "Some orders were not filled within the wait time. Cancelling them."
-            )
-            for order in open_orders:
-                self.trading.submit_cancel_order(order.intent.hash)
-                logger.info("Cancelled order with id: %s", order.id)
-        else:
-            logger.info("All orders were filled successfully.")
