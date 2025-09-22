@@ -128,7 +128,6 @@ class LiquidatingAccountContext:
         """
         dmae, dmmu = self._check_bids(strategy.construct_bids(self.positions))
         if self.is_liquidating:
-            # ( bool, (Decimal, Decimal))
             return False, dmae, dmmu
         if self.is_transaction_submitted(Step.REQUEST_LIQUIDATION):
             logger.info("%s - liquidation already requested", self.account_id)
