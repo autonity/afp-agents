@@ -146,12 +146,10 @@ def main():
     reseller.populate()
     reseller.sell()
     logger.info(
-        "Reseller sold all positions for %d margin accounts",
+        "Reseller selling all positions for %d margin accounts",
         len(reseller.margin_accounts),
     )
     logger.info("Orders submitted: %d", len(reseller.orders))
-    reseller.wait_for_orders(timedelta(minutes=1), timedelta(seconds=1))
-
 
 if __name__ == "__main__":
     main()
