@@ -5,7 +5,6 @@ from decimal import Decimal
 from typing import cast
 
 from afp import Trading, bindings
-from afp.bindings.erc20 import ERC20
 from eth_account.account import Account
 from web3 import HTTPProvider, Web3
 from web3.middleware import Middleware, SignAndSendRawMiddlewareBuilder
