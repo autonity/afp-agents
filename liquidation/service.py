@@ -34,6 +34,7 @@ class LiquidatingAccountContext:
 
     account_id: ChecksumAddress
     collateral_asset: ChecksumAddress
+    collateral_decimals: int | None
     margin_account: ChecksumAddress
     is_liquidating: bool
     positions: list[Position]
@@ -102,6 +103,7 @@ class LiquidatingAccountContext:
             self.auction_data = clearing.auction_data(
                 self.account_id, self.collateral_asset
             )
+        self.collateral_decimals = decimals
 
     def is_transaction_submitted(self, step: Step) -> bool:
         """
@@ -190,8 +192,6 @@ class LiquidatingAccountContext:
             margin_account.mae(self.account_id),
             margin_account.mmu(self.account_id),
         )
-        token = ERC20(self.w3, self.collateral_asset)
-        decimals = token.decimals()
         settlements: list[afp.bindings.Settlement] = []
         for bid in bids:
             settlements.append(
@@ -210,14 +210,14 @@ class LiquidatingAccountContext:
             self.account_id, settlements, mark_prices
         )
         dmae, dmmu = (
-            Decimal(mae_before - mae_after) / Decimal(10**decimals),
-            Decimal(mmu_before - mmu_after) / Decimal(10**decimals),
+            Decimal(mae_before - mae_after) / Decimal(10**self.collateral_decimals),
+            Decimal(mmu_before - mmu_after) / Decimal(10**self.collateral_decimals),
         )
         logger.info(
             "%s - MAE after bid: %s, MMU after bid: %s",
             self.account_id,
-            f"{Decimal(mae_after) / Decimal(10**decimals):,.2f}",
-            f"{Decimal(mmu_after) / Decimal(10**decimals):,.2f}",
+            f"{Decimal(mae_after) / Decimal(10**self.collateral_decimals):,.2f}",
+            f"{Decimal(mmu_after) / Decimal(10**self.collateral_decimals):,.2f}",
         )
         if dmae < Decimal(0):
             raise RuntimeError("MAE did not decrease after bid")

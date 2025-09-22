@@ -55,9 +55,6 @@ def main():
 
     logger.info("Found %d liquidatable accounts", len(accounts))
     for account in accounts:
-        token = ERC20(w3, account.collateral_asset)
-        decimals = token.decimals()
-
         logger.info("%s - processing Liquidation", account.account_id)
         account.populate()
         logger.info(
@@ -82,10 +79,10 @@ def main():
         logger.info(
             "%s - liquidating\n\tMMU: %s,\tMAE: %s\n\tMMU Now: %s,\tMAE Now: %s",
             account.account_id,
-            format_int(account.auction_data.mmu_at_initiation, decimals),
-            format_int(account.auction_data.mae_at_initiation, decimals),
-            format_int(account.auction_data.mmu_now, decimals),
-            format_int(account.auction_data.mae_now, decimals),
+            format_int(account.auction_data.mmu_at_initiation, account.collateral_decimals),
+            format_int(account.auction_data.mae_at_initiation, account.collateral_decimals),
+            format_int(account.auction_data.mmu_now, account.collateral_decimals),
+            format_int(account.auction_data.mae_now, account.collateral_decimals),
         )
         clearing = bindings.ClearingDiamond(w3)
         mae_offered = clearing.max_mae_offered(
@@ -94,7 +91,7 @@ def main():
         logger.info(
             "%s - max MAE offered: %s",
             account.account_id,
-            format_int(mae_offered, decimals),
+            format_int(mae_offered, account.collateral_decimals),
         )
         bids = FullLiquidationPercentMAEStrategy(
             DMAE, reseller.validate_position
@@ -131,8 +128,8 @@ def main():
                 values={
                     "Account ID": account.account_id,
                     "Collateral Asset": account.collateral_asset,
-                    "MMU Now": Decimal(account.auction_data.mmu_now) / Decimal(10**6),
-                    "MAE Now": Decimal(account.auction_data.mae_now) / Decimal(10**6),
+                    "MMU (before)": Decimal(account.auction_data.mae_at_initiation) / Decimal(10**account.collateral_decimals),
+                    "MAE (before)": Decimal(account.auction_data.mae_at_initiation) / Decimal(10**account.collateral_decimals),
                     "Positions": str(len(account.positions)),
                 },
             )
