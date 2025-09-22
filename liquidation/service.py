@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Tuple
 
 import afp.bindings
+from afp.bindings.erc20 import ERC20
 from eth_typing import ChecksumAddress
 from web3 import Web3
 
@@ -33,6 +34,7 @@ class LiquidatingAccountContext:
 
     account_id: ChecksumAddress
     collateral_asset: ChecksumAddress
+    collateral_decimals: int | None
     margin_account: ChecksumAddress
     is_liquidating: bool
     positions: list[Position]
@@ -79,6 +81,7 @@ class LiquidatingAccountContext:
         is currently undergoing liquidation. If so, retrieves auction data.
         """
         margin_account = afp.bindings.MarginAccount(self.w3, self.margin_account)
+        decimals = ERC20(self.w3, self.collateral_asset).decimals()
         positions = margin_account.positions(self.account_id)
         clearing = afp.bindings.ClearingDiamond(self.w3)
         product_registry = afp.bindings.ProductRegistry(self.w3)
@@ -86,7 +89,12 @@ class LiquidatingAccountContext:
             position_data = margin_account.position_data(self.account_id, position)
             mark_price = clearing.valuation(position)
             tick_size = product_registry.tick_size(position)
-            self.positions.append(Position(position_data, mark_price, tick_size))
+            point_value = Decimal(product_registry.point_value(position)) / Decimal(
+                10**decimals
+            )
+            self.positions.append(
+                Position(position_data, mark_price, tick_size, point_value)
+            )
         clearing = afp.bindings.ClearingDiamond(self.w3)
         self.is_liquidating = clearing.is_liquidating(
             self.account_id, self.collateral_asset
@@ -95,6 +103,7 @@ class LiquidatingAccountContext:
             self.auction_data = clearing.auction_data(
                 self.account_id, self.collateral_asset
             )
+        self.collateral_decimals = decimals
 
     def is_transaction_submitted(self, step: Step) -> bool:
         """
@@ -108,18 +117,21 @@ class LiquidatingAccountContext:
         """
         return any(submitted.step == step for submitted in self.transaction_steps)
 
-    def start_liquidation(self) -> bool:
+    def start_liquidation(self, strategy: BidStrategy) -> (bool, Decimal, Decimal):
         """
         Initiate liquidation for the account if not already in progress.
 
         Returns:
             bool: True if liquidation was started, False otherwise.
+            Decimal: Mae delta after bid
+            Decimal: Mmu delta after bid
         """
+        dmae, dmmu = self._check_bids(strategy.construct_bids(self.positions))
         if self.is_liquidating:
-            return False
+            return False, dmae, dmmu
         if self.is_transaction_submitted(Step.REQUEST_LIQUIDATION):
             logger.info("%s - liquidation already requested", self.account_id)
-            return False
+            return False, dmae, dmmu
         clearing = afp.bindings.ClearingDiamond(self.w3)
         fn = clearing.request_liquidation(self.account_id, self.collateral_asset)
         tx_hash = fn.transact()
@@ -131,7 +143,7 @@ class LiquidatingAccountContext:
         self.auction_data = clearing.auction_data(
             self.account_id, self.collateral_asset
         )
-        return True
+        return True, dmae, dmmu
 
     def bid_liquidation(self, strategy: BidStrategy) -> bool:
         """
@@ -155,6 +167,7 @@ class LiquidatingAccountContext:
                 "%s - no valid bids constructed, skipping liquidation", self.account_id
             )
             return False
+        self._check_bids(bids)
         fn = clearing.bid_auction(self.account_id, self.collateral_asset, bids)
         tx_hash = fn.transact()
         logger.info(
@@ -171,6 +184,45 @@ class LiquidatingAccountContext:
         )
         logger.info("%s - liquidation processed", self.account_id)
         return True
+
+    def _check_bids(self, bids: list[afp.bindings.BidData]) -> (Decimal, Decimal):
+        margin_account = afp.bindings.MarginAccount(self.w3, self.margin_account)
+        mae_before, mmu_before = (
+            margin_account.mae(self.account_id),
+            margin_account.mmu(self.account_id),
+        )
+        settlements: list[afp.bindings.Settlement] = []
+        for bid in bids:
+            settlements.append(
+                afp.bindings.Settlement(
+                    position_id=bid.product_id,
+                    quantity=-bid.quantity
+                    if bid.side == afp.bindings.Side.BID
+                    else bid.quantity,
+                    price=bid.price,
+                )
+            )
+        mark_prices = afp.bindings.SystemViewer(self.w3).valuations(
+            [bid.product_id for bid in bids]
+        )
+        mae_after, mmu_after = margin_account.mae_and_mmu_after_batch_trade(
+            self.account_id, settlements, mark_prices
+        )
+        dmae, dmmu = (
+            Decimal(mae_before - mae_after) / Decimal(10**self.collateral_decimals),
+            Decimal(mmu_before - mmu_after) / Decimal(10**self.collateral_decimals),
+        )
+        logger.info(
+            "%s - MAE after bid: %s, MMU after bid: %s",
+            self.account_id,
+            f"{Decimal(mae_after) / Decimal(10**self.collateral_decimals):,.2f}",
+            f"{Decimal(mmu_after) / Decimal(10**self.collateral_decimals):,.2f}",
+        )
+        if dmae < Decimal(0):
+            raise RuntimeError("MAE did not decrease after bid")
+        if dmmu < Decimal(0):
+            raise RuntimeError("MMU did not decrease after bid")
+        return dmae, dmmu
 
     def wait_time_for(self, dmae: Decimal, dmmu: Decimal) -> int:
         """
@@ -241,6 +293,8 @@ class LiquidationService:
         logger.info("Found %d active accounts", len(accounts))
         liquidatable_accounts = []
         for acct, details in account_details:
+            token = ERC20(self.w3, acct.collateral_asset)
+            decimals = token.decimals()
             logger.info("Checking account %s", acct.account_id)
             mae = details.mae
             mmu = details.mmu
@@ -248,8 +302,8 @@ class LiquidationService:
                 logger.info(
                     "Account %s not liquidatable: MAE %s >= MMU %s",
                     acct.account_id,
-                    f"{Decimal(mae) / Decimal(10**18):,.2f}",
-                    f"{Decimal(mmu) / Decimal(10**18):,.2f}",
+                    f"{Decimal(mae) / Decimal(10**decimals):,.2f}",
+                    f"{Decimal(mmu) / Decimal(10**decimals):,.2f}",
                 )
                 continue
 
@@ -257,8 +311,8 @@ class LiquidationService:
             logger.info(
                 "Account (%s)\n\tMAE: %s\n\tMMU %s",
                 acct.account_id,
-                f"{Decimal(mae) / Decimal(10**18):,.2f}",
-                f"{Decimal(mmu) / Decimal(10**18):,.2f}",
+                f"{Decimal(mae) / Decimal(10**decimals):,.2f}",
+                f"{Decimal(mmu) / Decimal(10**decimals):,.2f}",
             )
 
             duration, buffer = self.auction_config()

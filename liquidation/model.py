@@ -1,3 +1,4 @@
+from decimal import Decimal
 from enum import Enum
 
 import afp.bindings
@@ -24,11 +25,13 @@ class TransactionStep:
 class Position(afp.bindings.PositionData):
     mark_price: int
     tick_size: int
+    point_value: Decimal
 
     def __init__(
-        self, position_data: afp.bindings.PositionData, mark_price: int, tick_size: int
+        self, position_data: afp.bindings.PositionData, mark_price: int, tick_size: int, point_value: Decimal
     ):
         super().__init__(**vars(position_data))
         self.mark_price = mark_price
         self.tick_size = tick_size
+        self.point_value = point_value
 

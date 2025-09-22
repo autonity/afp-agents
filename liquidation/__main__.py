@@ -11,7 +11,6 @@ from web3.middleware import Middleware, SignAndSendRawMiddlewareBuilder
 
 import notifications
 from notifications import get_notifier
-from notifications.utils import format_link
 from subquery.client import AutSubquery
 from utils import format_int, wait_for_blocks
 
@@ -31,8 +30,8 @@ PRIVATE_KEY = os.environ["PRIVATE_KEY"]
 RPC_URL = os.environ["RPC_URL"]
 SUBQUERY_URL = os.environ["SUBQUERY_URL"]
 
-# This implies we take 10% of the MAE when liquidating
-DMAE = Decimal("0.1")
+# This implies we take 1% of the MAE when liquidating
+DMAE = Decimal("0.01")
 
 
 def main():
@@ -51,6 +50,7 @@ def main():
         trading,
         sq.margin_accounts(),
     )
+    strategy = FullLiquidationPercentMAEStrategy(DMAE, reseller.validate_position)
 
     logger.info("Found %d liquidatable accounts", len(accounts))
     for account in accounts:
@@ -60,7 +60,8 @@ def main():
             "%s - number of positions %d", account.account_id, len(account.positions)
         )
 
-        if account.start_liquidation():
+        liquidation_started, dmae, dmmu = account.start_liquidation(strategy)
+        if liquidation_started:
             logger.info("%s - requested liquidation", account.account_id)
         else:
             logger.info("%s - liquidation already in progress", account.account_id)
@@ -77,10 +78,10 @@ def main():
         logger.info(
             "%s - liquidating\n\tMMU: %s,\tMAE: %s\n\tMMU Now: %s,\tMAE Now: %s",
             account.account_id,
-            format_int(account.auction_data.mmu_at_initiation, 18),
-            format_int(account.auction_data.mae_at_initiation, 18),
-            format_int(account.auction_data.mmu_now, 18),
-            format_int(account.auction_data.mae_now, 18),
+            format_int(account.auction_data.mmu_at_initiation, account.collateral_decimals),
+            format_int(account.auction_data.mae_at_initiation, account.collateral_decimals),
+            format_int(account.auction_data.mmu_now, account.collateral_decimals),
+            format_int(account.auction_data.mae_now, account.collateral_decimals),
         )
         clearing = bindings.ClearingDiamond(w3)
         mae_offered = clearing.max_mae_offered(
@@ -89,7 +90,7 @@ def main():
         logger.info(
             "%s - max MAE offered: %s",
             account.account_id,
-            format_int(mae_offered, 18),
+            format_int(mae_offered, account.collateral_decimals),
         )
         bids = FullLiquidationPercentMAEStrategy(
             DMAE, reseller.validate_position
@@ -107,16 +108,16 @@ def main():
                 mae_check_failed,
                 mae_over_mmu_exceeded,
             )
-        blocks_to_wait = account.wait_time_for(DMAE, Decimal("1.0"))
+            continue
+        blocks_to_wait = account.wait_time_for(dmae, dmmu)
         logger.info(
             "%s - waiting for %s before liquidation",
             account.account_id,
             blocks_to_wait,
         )
-        wait_for_blocks(w3, blocks_to_wait)
-        account.bid_liquidation(
-            FullLiquidationPercentMAEStrategy(DMAE, reseller.validate_position)
-        )
+        ## wait an extra block to ensure we are clear
+        wait_for_blocks(w3, blocks_to_wait + 1)
+        account.bid_liquidation(strategy)
 
     if len(accounts) > 0:
         content = f"Liquidation processed for {len(accounts)} margin accounts"
@@ -126,8 +127,8 @@ def main():
                 values={
                     "Account ID": account.account_id,
                     "Collateral Asset": account.collateral_asset,
-                    "MMU Now": format_int(account.auction_data.mmu_now, 18),
-                    "MAE Now": format_int(account.auction_data.mae_now, 18),
+                    "MMU (before)": Decimal(account.auction_data.mae_at_initiation) / Decimal(10**account.collateral_decimals),
+                    "MAE (before)": Decimal(account.auction_data.mae_at_initiation) / Decimal(10**account.collateral_decimals),
                     "Positions": str(len(account.positions)),
                 },
             )

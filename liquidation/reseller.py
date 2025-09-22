@@ -5,6 +5,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from afp import Trading, bindings
+from afp.bindings.erc20 import ERC20
 from afp.schemas import Order
 from eth_typing import ChecksumAddress
 from hexbytes import HexBytes
@@ -57,6 +58,7 @@ class Reseller:
         """
         for margin_account_address in self.margin_accounts:
             margin_account = bindings.MarginAccount(self.w3, margin_account_address)
+            decimals = ERC20(self.w3, margin_account.collateral_asset()).decimals()
             positions = margin_account.positions(self.w3.eth.default_account)
             clearing = bindings.ClearingDiamond(self.w3)
             product_registry = bindings.ProductRegistry(self.w3)
@@ -64,7 +66,8 @@ class Reseller:
                 position_data = margin_account.position_data(self.w3.eth.default_account, position)
                 mark_price = clearing.valuation(position)
                 tick_size = product_registry.tick_size(position)
-                self.positions.append(Position(position_data, mark_price, tick_size))
+                point_value = Decimal(product_registry.point_value(position))/Decimal(10**decimals)
+                self.positions.append(Position(position_data, mark_price, tick_size, point_value))
         logger.info(
             "Populated reseller with %d positions from %d margin accounts.",
             len(self.positions),
