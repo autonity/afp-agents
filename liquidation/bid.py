@@ -63,12 +63,14 @@ class FullLiquidationMarkPriceStrategy(BidStrategy):
             mark_price = position.mark_price
             quantity = -position.quantity
             side = afp.bindings.Side.BID if quantity < 0 else afp.bindings.Side.ASK
-            bids.append(afp.bindings.BidData(
-                product_id=position.position_id,
-                quantity=abs(quantity),
-                price=mark_price,
-                side=side,
-            ))
+            bids.append(
+                afp.bindings.BidData(
+                    product_id=position.position_id,
+                    quantity=abs(quantity),
+                    price=mark_price,
+                    side=side,
+                )
+            )
         return bids
 
 
@@ -80,7 +82,9 @@ class FullLiquidationPercentMAEStrategy(BidStrategy):
     reducing the MAE of the liquidating account by percent_mae.
     """
 
-    def __init__(self, percent_mae: Decimal, position_validator: Callable[[HexBytes], bool]):
+    def __init__(
+        self, percent_mae: Decimal, position_validator: Callable[[HexBytes], bool]
+    ):
         """
         Args:
             percent_mae (Decimal): Percentage of MAE to use for bid price adjustment.
@@ -103,17 +107,25 @@ class FullLiquidationPercentMAEStrategy(BidStrategy):
         for position in positions:
             if not self.position_validator(position.position_id):
                 continue
-            mark_price = Decimal(position.mark_price) / Decimal(10 ** position.tick_size)
+            mark_price = Decimal(position.mark_price) / Decimal(10**position.tick_size)
             tick_size = position.tick_size
-            quantity = -position.quantity
-            side = afp.bindings.Side.BID if quantity < 0 else afp.bindings.Side.ASK
-            bid_price = mark_price * (1 - self.percent_mae) if quantity > 0 else mark_price * (1 + self.percent_mae)
-            bids.append(afp.bindings.BidData(
-                product_id=position.position_id,
-                quantity=abs(quantity),
-                price=parse_decimal(bid_price, tick_size),
-                side=side,
-            ))
+            quantity = position.quantity
+            side = afp.bindings.Side.BID if quantity > 0 else afp.bindings.Side.ASK
+            bid_price = (
+                mark_price
+                * (1 - self.percent_mae / (abs(quantity) * position.point_value))
+                if quantity > 0
+                else mark_price
+                * (1 + self.percent_mae / (abs(quantity) * position.point_value))
+            )
+            bids.append(
+                afp.bindings.BidData(
+                    product_id=position.position_id,
+                    quantity=abs(quantity),
+                    price=parse_decimal(bid_price, tick_size),
+                    side=side,
+                )
+            )
         return bids
 
 
