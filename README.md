@@ -93,7 +93,7 @@ losses amongst Loss Absorbing Accounts (LAAs).
 
 - `PRIVATE_KEY`: The agent's account private key.
 - `RPC_URL`: Autonity RPC node URL.
-- `SUBQUERY_URL`: Autonity subquery node URL.
+- `SUBQUERY_URL`: Autonity subquery node URL (`https://subquery.autonity.org/graphql`)
 
 **Optional AFP configuration:** (defaults to mainnet addresses if not set)
 
@@ -104,7 +104,7 @@ losses amongst Loss Absorbing Accounts (LAAs).
 
 **Exchange Connection (only for liquidation agent):**
 
-- `AFP_EXCHANGE_URL`
+- `AFP_EXCHANGE_URL`: Autex exchange url (`https://afp-exchange-stable.up.railway.app`)
 
 ---
 
