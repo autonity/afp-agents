@@ -235,7 +235,7 @@ class BankruptcyService:
         list[BankruptAccountContext]
             List of contexts for each bankrupt account found.
         """
-        accounts, _ = self.client.active_accounts()
+        accounts = self.client.all_accounts()
         system_viewer = afp.bindings.SystemViewer(self.w3)
         maes = self.maes(accounts)
         logger.info("Found %d active accounts", len(accounts))
@@ -311,7 +311,4 @@ class BankruptcyService:
                 [acct.collateral_asset for acct in accounts[i : i + MAX_ACCOUNT_FETCH]],
                 [acct.account_id for acct in accounts[i : i + MAX_ACCOUNT_FETCH]],
             ))
-        return system_viewer.mae_by_collateral_assets(
-            [acct.collateral_asset for acct in accounts],
-            [acct.account_id for acct in accounts],
-        )
+        return maes

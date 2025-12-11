@@ -1,5 +1,5 @@
 import logging
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 from eth_typing import ChecksumAddress
 from gql import Client
@@ -17,6 +17,7 @@ from .query import (
     margin_accounts_query,
     products_query,
     products_with_fsp_passed_query,
+    all_accounts_query,
 )
 
 requests_logger.setLevel(logging.ERROR)  # Suppress requests logging for cleaner output
@@ -40,19 +41,23 @@ class AutSubquery:
         return parser(self.client.execute(query))
 
     def accounts_in_product(self, product_id: str) -> List[AccountInfo]:
-        """Retrieves all accounts that have submitted orders for a specific product.
-
-        Parameters
-        ----------
-        product_id : str
-            The ID of the product.
-
-        Returns
-        -------
-        list[AccountInfo]
-        """
         query, parser = accounts_in_product_query(product_id)
-        return parser(self.client.execute(query))
+        results: List[AccountInfo] = []
+        after: Optional[str] = None
+        page_size = 50
+
+        while True:
+            variables = {"productId": product_id, "first": page_size, "after": after}
+            resp = self.client.execute(query, variable_values=variables)
+            results.extend(parser(resp))
+
+            page_info = resp["productHoldings"].get("pageInfo", {})
+            if not page_info.get("hasNextPage"):
+                break
+            after = page_info.get("endCursor")
+
+        return results
+
 
     def products(self) -> List[HexBytes]:
         """Retrieves all product IDs available in the system.
@@ -145,3 +150,21 @@ class AutSubquery:
         """
         query, parser = holders_of_query(product_id)
         return parser(self.client.execute(query))
+
+    def all_accounts(self) -> List[Account]:
+        query, parser = all_accounts_query()
+        results: List[Account] = []
+        after: Optional[str] = None
+        page_size = 50
+
+        while True:
+            variables = {"first": page_size, "after": after}
+            resp = self.client.execute(query, variable_values=variables)
+            results.extend(parser(resp))
+
+            page_info = resp["marginAccountUpdates"].get("pageInfo", {})
+            if not page_info.get("hasNextPage"):
+                break
+            after = page_info.get("endCursor")
+
+        return results

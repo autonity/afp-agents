@@ -34,32 +34,41 @@ def margin_accounts_query() -> (
 def accounts_in_product_query(
     product_id: str,
 ) -> (DocumentNode, Callable[[Dict[str, Any]], List[AccountInfo]]):
-    query = gql(f"""
-        {{
-          productHoldings(filter: {{productId: {{equalTo: "{product_id}"}}, quantity: {{notEqualTo: "0"}}}}) {{
-            nodes {{
+    query = gql(
+        """
+        query($productId: ID!, $first: Int!, $after: Cursor) {
+          productHoldings(
+            filter: {productId: {equalTo: $productId}, quantity: {notEqualTo: "0"}}
+            first: $first
+            after: $after
+          ) {
+            nodes {
               productId
-              marginAccountHolding {{
+              marginAccountHolding {
                 marginAccountId
                 owner
-              }}
+              }
               quantity
-            }}
-          }}
-        }}
-        """)
+            }
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+          }
+        }
+        """
+    )
 
     def parser(result: Dict[str, Any]) -> List[AccountInfo]:
-        accounts = []
+        accounts: List[AccountInfo] = []
         for holding in result["productHoldings"]["nodes"]:
-            account_id = holding["marginAccountHolding"]["owner"]
-            quantity = holding["quantity"]
-            margin_account_address = holding["marginAccountHolding"]["marginAccountId"]
             accounts.append(
                 AccountInfo(
-                    account=ChecksumAddress(account_id),
-                    margin_account_address=ChecksumAddress(margin_account_address),
-                    quantity=int(quantity),
+                    account=ChecksumAddress(holding["marginAccountHolding"]["owner"]),
+                    margin_account_address=ChecksumAddress(
+                        holding["marginAccountHolding"]["marginAccountId"]
+                    ),
+                    quantity=int(holding["quantity"]),
                 )
             )
         return accounts
@@ -80,6 +89,49 @@ def products_query() -> (DocumentNode, Callable[[Dict[str, Any]], List[HexBytes]
 
     def parser(result: Dict[str, Any]) -> List[HexBytes]:
         return [HexBytes(product["id"]) for product in result["products"]["nodes"]]
+
+    return query, parser
+
+
+def all_accounts_query() -> (DocumentNode, Callable[[Dict[str, Any]], List[Account]]):
+    query = gql(
+        """
+        query($first: Int!, $after: Cursor) {
+          marginAccountUpdates(
+            filter: {updateType: {equalTo: DEPOSIT}}
+            distinct: [OWNER]
+            first: $first
+            after: $after
+          ) {
+            nodes {
+                owner
+                marginAccount {
+                    collateralAsset
+                    id
+                }
+             }
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+          }
+        }
+        """
+    )
+
+    def parser(result: Dict[str, Any]) -> List[Account]:
+        accounts: List[Account] = []
+        for account in result["marginAccountUpdates"]["nodes"]:
+            accounts.append(
+                Account(
+                    account_id=ChecksumAddress(account["owner"]),
+                    margin_account=ChecksumAddress(account["marginAccount"]["id"]),
+                    collateral_asset=ChecksumAddress(
+                        account["marginAccount"]["collateralAsset"]
+                    ),
+                )
+            )
+        return accounts
 
     return query, parser
 
@@ -205,7 +257,7 @@ def last_trade_block_query(
 
 
 def accounts_in_window_query(
-        product_id: str, from_block: int, to_block: int
+    product_id: str, from_block: int, to_block: int
 ) -> (DocumentNode, Callable[[Dict[str, Any]], List[ChecksumAddress]]):
     query = gql(f"""
     {{
@@ -233,6 +285,7 @@ def accounts_in_window_query(
       }}
     }}
     """)
+
     def parser(result: Dict[str, Any]) -> List[ChecksumAddress]:
         accounts = set()
         for trade in result["trades"]["nodes"]:
@@ -243,7 +296,9 @@ def accounts_in_window_query(
     return query, parser
 
 
-def holders_of_query(product_id: str) -> (DocumentNode, Callable[[Dict[str, Any]], List[Tuple[ChecksumAddress, int]]]):
+def holders_of_query(
+    product_id: str,
+) -> (DocumentNode, Callable[[Dict[str, Any]], List[Tuple[ChecksumAddress, int]]]):
     query = gql(f"""
     {{
       productHoldings(
@@ -270,8 +325,9 @@ def holders_of_query(product_id: str) -> (DocumentNode, Callable[[Dict[str, Any]
         return [
             (
                 ChecksumAddress(account["marginAccountHolding"]["owner"]),
-                int(account["quantity"])
+                int(account["quantity"]),
             )
             for account in result["productHoldings"]["nodes"]
         ]
+
     return query, parser
