@@ -140,9 +140,12 @@ def active_accounts_query() -> (
     DocumentNode,
     Callable[[Dict[str, Any]], Tuple[List[Account], List[HexBytes]]],
 ):
-    query = gql("""
-        {
-          productHoldings(filter: {quantity: {notEqualTo: "0"}}) {
+    # Cursor-paginated query: callers should provide `$first` (page size) and
+    # `$after` (Cursor) and iterate using `pageInfo.hasNextPage` / `pageInfo.endCursor`.
+    query = gql(
+        """
+        query($first: Int!, $after: Cursor) {
+          productHoldings(filter: {quantity: {notEqualTo: "0"}}, first: $first, after: $after) {
             nodes {
               product {
                 id
@@ -156,9 +159,14 @@ def active_accounts_query() -> (
               }
               quantity
             }
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
           }
         }
-        """)
+        """
+    )
 
     def parser(result: Dict[str, Any]) -> (List[Account], List[HexBytes]):
         accounts = set()
@@ -299,27 +307,33 @@ def accounts_in_window_query(
 def holders_of_query(
     product_id: str,
 ) -> (DocumentNode, Callable[[Dict[str, Any]], List[Tuple[ChecksumAddress, int]]]):
-    query = gql(f"""
-    {{
-      productHoldings(
-        filter: {{
-            productId: {{
-                equalTo: "{product_id}"
-            }},
-            quantity: {{
-                notEqualTo: "0"
-            }}
-        }}
-      ){{
-        nodes {{
-          marginAccountHolding {{
-            owner
-          }}
-          quantity
-        }}
-      }}
-    }}
-    """)
+    # Cursor-paginated query: uses $productId, $first and $after (Cursor).
+    # The caller should loop pages using pageInfo.hasNextPage / pageInfo.endCursor.
+    query = gql(
+        """
+        query($productId: ID!, $first: Int!, $after: Cursor) {
+          productHoldings(
+            filter: {
+              productId: { equalTo: $productId },
+              quantity: { notEqualTo: "0" }
+            }
+            first: $first
+            after: $after
+          ) {
+            nodes {
+              marginAccountHolding {
+                owner
+              }
+              quantity
+            }
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+          }
+        }
+        """
+    )
 
     def parser(result: Dict[str, Any]) -> List[Tuple[ChecksumAddress, int]]:
         return [
