@@ -1,6 +1,5 @@
 [build]
-builder = "nixpacks"
-nixpacksConfigPath = "nixpacks.toml"
+builder = "RAILPACK"
 watchPatterns = ["closeout/*", "pyproject.toml"]
 
 [deploy]
