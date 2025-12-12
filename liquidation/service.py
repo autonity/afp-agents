@@ -306,6 +306,13 @@ class LiquidationService:
                     f"{Decimal(mmu) / Decimal(10**decimals):,.2f}",
                 )
                 continue
+            if mae < 0:
+                logger.info(
+                    "Account %s bankrupt: MAE %s < 0",
+                    acct.account_id,
+                    f"{Decimal(mae) / Decimal(10**decimals):,.2f}",
+                )
+                continue
 
             logger.info("Found liquidatable account %s", acct.account_id)
             logger.info(

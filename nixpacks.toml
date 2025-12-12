@@ -1,7 +1,0 @@
-providers = ['python']
-
-[phases.setup]
-nixPkgs = ['uv']
-
-[phases.install]
-cmds = ['uv sync --no-dev --frozen']
