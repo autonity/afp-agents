@@ -36,7 +36,7 @@ def accounts_in_product_query(
 ) -> (DocumentNode, Callable[[Dict[str, Any]], List[AccountInfo]]):
     query = gql(
         """
-        query($productId: ID!, $first: Int!, $after: Cursor) {
+        query($productId: String!, $first: Int!, $after: Cursor) {
           productHoldings(
             filter: {productId: {equalTo: $productId}, quantity: {notEqualTo: "0"}}
             first: $first
@@ -311,7 +311,7 @@ def holders_of_query(
     # The caller should loop pages using pageInfo.hasNextPage / pageInfo.endCursor.
     query = gql(
         """
-        query($productId: ID!, $first: Int!, $after: Cursor) {
+        query($productId: String!, $first: Int!, $after: Cursor) {
           productHoldings(
             filter: {
               productId: { equalTo: $productId },
