@@ -7,6 +7,7 @@ from web3 import HTTPProvider, Web3
 from web3.middleware import Middleware, SignAndSendRawMiddlewareBuilder
 
 import notifications
+from notifications.healthcheck import ping_healthcheck
 from notifications.utils import format_link
 from subquery.client import AutSubquery
 
@@ -65,17 +66,20 @@ def main():
             notifications.NotificationItem(
                 title=f"Account {format_link(account.account_id)}",
                 values={
-                    "Loss Mutualization Tx":format_link(f"0x{tx.hex()}", notifications.utils.LinkType.TX),
+                    "Loss Mutualization Tx": format_link(
+                        f"0x{tx.hex()}", notifications.utils.LinkType.TX
+                    ),
                     "Positions": len(account.positions),
-                }
+                },
             )
             for account, tx in zip(accounts, submitted_txs)
         ]
         notifier.notify(
             "Bankruptcy Mutualized",
             f"Bankruptcy submitted for {len(accounts)} margin accounts",
-            notify_data
+            notify_data,
         )
+    ping_healthcheck()
 
 
 if __name__ == "__main__":

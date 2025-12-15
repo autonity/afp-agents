@@ -1,6 +1,5 @@
 import logging
 import os
-from datetime import timedelta
 from decimal import Decimal
 from typing import cast
 
@@ -9,8 +8,8 @@ from eth_account.account import Account
 from web3 import HTTPProvider, Web3
 from web3.middleware import Middleware, SignAndSendRawMiddlewareBuilder
 
-import notifications
 from notifications import get_notifier
+from notifications.healthcheck import ping_healthcheck
 from subquery.client import AutSubquery
 from utils import format_int, wait_for_blocks
 
@@ -78,8 +77,12 @@ def main():
         logger.info(
             "%s - liquidating\n\tMMU: %s,\tMAE: %s\n\tMMU Now: %s,\tMAE Now: %s",
             account.account_id,
-            format_int(account.auction_data.mmu_at_initiation, account.collateral_decimals),
-            format_int(account.auction_data.mae_at_initiation, account.collateral_decimals),
+            format_int(
+                account.auction_data.mmu_at_initiation, account.collateral_decimals
+            ),
+            format_int(
+                account.auction_data.mae_at_initiation, account.collateral_decimals
+            ),
             format_int(account.auction_data.mmu_now, account.collateral_decimals),
             format_int(account.auction_data.mae_now, account.collateral_decimals),
         )
@@ -127,8 +130,10 @@ def main():
                 values={
                     "Account ID": account.account_id,
                     "Collateral Asset": account.collateral_asset,
-                    "MMU (before)": Decimal(account.auction_data.mae_at_initiation) / Decimal(10**account.collateral_decimals),
-                    "MAE (before)": Decimal(account.auction_data.mae_at_initiation) / Decimal(10**account.collateral_decimals),
+                    "MMU (before)": Decimal(account.auction_data.mae_at_initiation)
+                    / Decimal(10**account.collateral_decimals),
+                    "MAE (before)": Decimal(account.auction_data.mae_at_initiation)
+                    / Decimal(10**account.collateral_decimals),
                     "Positions": str(len(account.positions)),
                 },
             )
@@ -150,6 +155,8 @@ def main():
         len(reseller.margin_accounts),
     )
     logger.info("Orders submitted: %d", len(reseller.orders))
+    ping_healthcheck()
+
 
 if __name__ == "__main__":
     main()
