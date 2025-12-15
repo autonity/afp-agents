@@ -9,6 +9,7 @@ from web3.middleware import Middleware, SignAndSendRawMiddlewareBuilder
 
 import notifications
 from notifications import get_notifier
+from notifications.healthcheck import ping_healthcheck
 from notifications.utils import format_link
 from subquery.client import AutSubquery
 
@@ -93,6 +94,7 @@ def main():
             notify_data,
         )
     logger.info("Closeout submitted for %d products", len(products))
+    ping_healthcheck()
 
 
 if __name__ == "__main__":
