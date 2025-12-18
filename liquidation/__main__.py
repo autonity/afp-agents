@@ -8,7 +8,7 @@ from eth_account.account import Account
 from web3 import HTTPProvider, Web3
 from web3.middleware import Middleware, SignAndSendRawMiddlewareBuilder
 
-from notifications import get_notifier
+from notifications import get_notifier, NotificationItem
 from notifications.healthcheck import ping_healthcheck
 from subquery.client import AutSubquery
 from utils import format_int, wait_for_blocks
@@ -125,7 +125,7 @@ def main():
     if len(accounts) > 0:
         content = f"Liquidation processed for {len(accounts)} margin accounts"
         notify_data = [
-            notifications.NotificationItem(
+            NotificationItem(
                 title=f"Account {account.account_id} liquidated",
                 values={
                     "Account ID": account.account_id,
