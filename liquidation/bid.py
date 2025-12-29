@@ -113,13 +113,16 @@ class FullLiquidationPercentMAEStrategy(BidStrategy):
             list[afp.bindings.BidData]: List of bid data objects.
         """
         bids = []
+        skip_bids = []
         sum_notional = Decimal(0)
         for position in positions:
             if not self.position_validator(position.position_id):
+                skip_bids.append(True)
                 continue
             mark_price = position.mark_price
             quantity = position.quantity
             sum_notional += Decimal(position.mark_price * abs(position.quantity) * position.point_value) / Decimal(10**position.tick_size)
+            skip_bids.append(False)
 
         # we calculate a difference percentage between mark price and bid price assuming they are same for each position
         # so that we take `mae_initial * percent_mae` amount of MAE from the liquidating account
@@ -128,7 +131,9 @@ class FullLiquidationPercentMAEStrategy(BidStrategy):
             # it means we cannot take `mae_initial * percent_mae`
             return False, bids
 
-        for position in positions:
+        for index, position in enumerate(positions):
+            if skip_bids[index]:
+                continue
             side = afp.bindings.Side.BID if quantity > 0 else afp.bindings.Side.ASK
             bid_price = (
                 math.floor(
