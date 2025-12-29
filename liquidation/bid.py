@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from decimal import Decimal
+import math
 from typing import Callable
 
 import afp.bindings
@@ -18,14 +19,16 @@ class BidStrategy(ABC):
     """
 
     @abstractmethod
-    def construct_bids(self, positions: list[Position]) -> list[afp.bindings.BidData]:
+    def construct_bids(self, mae_initial: int, positions: list[Position]) -> (bool, list[afp.bindings.BidData]):
         """
         Construct bids for the liquidating account based on its positions.
 
         Args:
+            mae_initial (int): Initial MAE of the account
             positions (list[Position]): List of positions to construct bids for.
 
         Returns:
+            bool: True if bid construction is possible, False otherwise
             list[afp.bindings.BidData]: List of bid data objects.
         """
         pass
@@ -46,14 +49,16 @@ class FullLiquidationMarkPriceStrategy(BidStrategy):
         """
         self.position_validator = position_validator
 
-    def construct_bids(self, positions: list[Position]) -> list[afp.bindings.BidData]:
+    def construct_bids(self, mae_initial: int, positions: list[Position]) -> (bool, list[afp.bindings.BidData]):
         """
         Construct bids for every position held by the liquidating account at the mark price.
 
         Args:
+            mae_initial (int): Initial MAE of the account
             positions (list[Position]): List of positions to construct bids for.
 
         Returns:
+            bool: True if bid construction is possible, False otherwise
             list[afp.bindings.BidData]: List of bid data objects.
         """
         bids = []
@@ -61,8 +66,8 @@ class FullLiquidationMarkPriceStrategy(BidStrategy):
             if not self.position_validator(position.position_id):
                 continue
             mark_price = position.mark_price
-            quantity = -position.quantity
-            side = afp.bindings.Side.BID if quantity < 0 else afp.bindings.Side.ASK
+            quantity = position.quantity
+            side = afp.bindings.Side.BID if quantity > 0 else afp.bindings.Side.ASK
             bids.append(
                 afp.bindings.BidData(
                     product_id=position.position_id,
@@ -71,7 +76,7 @@ class FullLiquidationMarkPriceStrategy(BidStrategy):
                     side=side,
                 )
             )
-        return bids
+        return True, bids
 
 
 class FullLiquidationPercentMAEStrategy(BidStrategy):
@@ -81,6 +86,8 @@ class FullLiquidationPercentMAEStrategy(BidStrategy):
     This strategy creates bids for full liquidation based on a percentage of the mark price,
     reducing the MAE of the liquidating account by percent_mae.
     """
+
+    percent_mae: Decimal
 
     def __init__(
         self, percent_mae: Decimal, position_validator: Callable[[HexBytes], bool]
@@ -93,40 +100,53 @@ class FullLiquidationPercentMAEStrategy(BidStrategy):
         self.percent_mae = percent_mae
         self.position_validator = position_validator
 
-    def construct_bids(self, positions: list[Position]) -> list[afp.bindings.BidData]:
+    def construct_bids(self, mae_initial: int, positions: list[Position]) -> (bool, list[afp.bindings.BidData]):
         """
         Construct bids for full liquidation based on a percentage of the mark price.
 
         Args:
+            mae_initial (int): Initial MAE of the account
             positions (list[Position]): List of positions to construct bids for.
 
         Returns:
+            bool: True if bid construction is possible, False otherwise
             list[afp.bindings.BidData]: List of bid data objects.
         """
         bids = []
+        sum_notional = Decimal(0)
         for position in positions:
             if not self.position_validator(position.position_id):
                 continue
-            mark_price = Decimal(position.mark_price) / Decimal(10**position.tick_size)
-            tick_size = position.tick_size
+            mark_price = position.mark_price
             quantity = position.quantity
+            sum_notional += Decimal(position.mark_price * abs(position.quantity) * position.point_value) / Decimal(10**position.tick_size)
+
+        # we calculate a difference percentage between mark price and bid price assuming they are same for each position
+        # so that we take `mae_initial * percent_mae` amount of MAE from the liquidating account
+        percent_dmark = Decimal(mae_initial) * self.percent_mae / Decimal(sum_notional)
+        if percent_dmark > Decimal(1):
+            # it means we cannot take `mae_initial * percent_mae`
+            return False, bids
+
+        for position in positions:
             side = afp.bindings.Side.BID if quantity > 0 else afp.bindings.Side.ASK
             bid_price = (
-                mark_price
-                * (1 - self.percent_mae / (abs(quantity) * position.point_value))
-                if quantity > 0
-                else mark_price
-                * (1 + self.percent_mae / (abs(quantity) * position.point_value))
+                math.floor(
+                    Decimal(mark_price) * (1 - percent_dmark)
+                ) if quantity > 0
+                else math.ceil(
+                    Decimal(mark_price) * (1 + percent_dmark)
+                )
             )
             bids.append(
                 afp.bindings.BidData(
                     product_id=position.position_id,
                     quantity=abs(quantity),
-                    price=parse_decimal(bid_price, tick_size),
+                    price=bid_price,
                     side=side,
                 )
             )
-        return bids
+        return True, bids
 
 
 class OrderedPercentMAEStrategy(BidStrategy):
@@ -135,6 +155,6 @@ class OrderedPercentMAEStrategy(BidStrategy):
     def __init__(self, percent_mae: Decimal):
         self.percent_mae = percent_mae
 
-    def construct_bids(self, positions: list[Position]) -> list[afp.bindings.BidData]:
+    def construct_bids(self, mae_initial: int, positions: list[Position]) -> (bool, list[afp.bindings.BidData]):
         # ToDo: bid the largest positions
         raise NotImplementedError("OrderedPercentMAEStrategy not implemented yet.")
