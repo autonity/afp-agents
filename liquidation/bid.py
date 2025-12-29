@@ -114,22 +114,45 @@ class FullLiquidationPercentMAEStrategy(BidStrategy):
         """
         bids = []
         skip_bids = []
-        sum_notional = Decimal(0)
+        sum_notional_long = Decimal(0)
+        sum_notional_short = Decimal(0)
         for position in positions:
             if not self.position_validator(position.position_id):
                 skip_bids.append(True)
                 continue
             mark_price = position.mark_price
+            if mark_price == 0:
+                # just a safety check for further calculation
+                raise RuntimeError("Got zero mark price for position ", position.position_id)
+
             quantity = position.quantity
-            sum_notional += Decimal(position.mark_price * abs(position.quantity) * position.point_value) / Decimal(10**position.tick_size)
+            if quantity > 0:
+                sum_notional_long += position.notional_at_mark()
+            else:
+                sum_notional_short += position.notional_at_mark()
+
             skip_bids.append(False)
 
-        # we calculate a difference percentage between mark price and bid price assuming they are same for each position
+        # we calculate a constant difference percentage between mark price and bid price for all positions
         # so that we take `mae_initial * percent_mae` amount of MAE from the liquidating account
-        percent_dmark = Decimal(mae_initial) * self.percent_mae / Decimal(sum_notional)
+        #
+        # the condition we assumed here is the following:
+        # `percent_dmark_long * sum_notional_long + percent_dmark_short * sum_notional_short >= dmae`
+        # we solve this assuming `percent_dmark_long = percent_dmark_short = percent_dmark`
+        percent_dmark = Decimal(mae_initial) * self.percent_mae / (sum_notional_long + sum_notional_short)
+        percent_dmark_long = Decimal(0)
+        percent_dmark_short = Decimal(0)
         if percent_dmark > Decimal(1):
-            # it means we cannot take `mae_initial * percent_mae`
-            return False, bids
+            # for long positions, bid price cannot differ more than 100% from mark price
+            # we can use different percentage for long and short positions to compensate this
+            # we will take 100% different for long, which means the bid price will be zero
+            percent_dmark_long = Decimal(1)
+
+            # for short, we will calculate the price different percentage from here
+            percent_dmark_short = (Decimal(mae_initial) * self.percent_mae - sum_notional_long) / sum_notional_short
+        else:
+            percent_dmark_long = percent_dmark
+            percent_dmark_short = percent_dmark
 
         for index, position in enumerate(positions):
             if skip_bids[index]:
@@ -137,10 +160,10 @@ class FullLiquidationPercentMAEStrategy(BidStrategy):
             side = afp.bindings.Side.BID if quantity > 0 else afp.bindings.Side.ASK
             bid_price = (
                 math.floor(
-                    Decimal(mark_price) * (1 - percent_dmark)
+                    Decimal(mark_price) * (1 - percent_dmark_long)
                 ) if quantity > 0
                 else math.ceil(
-                    Decimal(mark_price) * (1 + percent_dmark)
+                    Decimal(mark_price) * (1 + percent_dmark_short)
                 )
             )
             bids.append(

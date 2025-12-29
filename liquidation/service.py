@@ -137,7 +137,9 @@ class LiquidatingAccountContext:
         if not bid_possible:
             return False, True, 0, 0
 
-        dmae, dmmu = self._check_bids(bids)
+        check_passed, dmae, dmmu = self._check_bids(bids)
+        if not check_passed:
+            return False, True, dmae, dmmu
         if self.is_liquidating:
             return False, False, dmae, dmmu
         if self.is_transaction_submitted(Step.REQUEST_LIQUIDATION):
@@ -181,7 +183,10 @@ class LiquidatingAccountContext:
                 "%s - no valid bids constructed, skipping liquidation", self.account_id
             )
             return False
-        self._check_bids(bids)
+        check_passed, = self._check_bids(bids)
+        if not check_passed:
+            return False
+
         fn = clearing.bid_auction(self.account_id, self.collateral_asset, bids)
         tx_hash = fn.transact()
         logger.info(
@@ -199,7 +204,7 @@ class LiquidatingAccountContext:
         logger.info("%s - liquidation processed", self.account_id)
         return True
 
-    def _check_bids(self, bids: list[afp.bindings.BidData]) -> (Decimal, Decimal):
+    def _check_bids(self, bids: list[afp.bindings.BidData]) -> (bool, Decimal, Decimal):
         margin_account = afp.bindings.MarginAccount(self.w3, self.margin_account)
         mae_before, mmu_before = (
             margin_account.mae(self.account_id),
@@ -227,7 +232,7 @@ class LiquidatingAccountContext:
             Decimal(mmu_before - mmu_after) / Decimal(10**self.collateral_decimals),
         )
         if mae_after < 0:
-            raise RuntimeError("Cannot liquidate account into bankruptcy")
+            return False, dmae, dmmu
         logger.info(
             "%s - MAE after bid: %s, MMU after bid: %s",
             self.account_id,
@@ -238,7 +243,7 @@ class LiquidatingAccountContext:
             raise RuntimeError("MAE did not decrease after bid")
         if dmmu < Decimal(0):
             raise RuntimeError("MMU did not decrease after bid")
-        return dmae, dmmu
+        return True, dmae, dmmu
 
     def wait_time_for(self, dmae: Decimal, dmmu: Decimal, max_mae_offered: int, mmu_now: int) -> (bool, int):
         """
