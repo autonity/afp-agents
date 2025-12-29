@@ -59,7 +59,11 @@ def main():
             "%s - number of positions %d", account.account_id, len(account.positions)
         )
 
-        liquidation_started, dmae, dmmu = account.start_liquidation(strategy)
+        liquidation_started, request_failed, dmae, dmmu = account.start_liquidation(strategy)
+        if request_failed:
+            logger.info("%s - cannot initiate liquidation, skipping...", account.account_id)
+            continue
+
         if liquidation_started:
             logger.info("%s - requested liquidation", account.account_id)
         else:
@@ -95,9 +99,15 @@ def main():
             account.account_id,
             format_int(mae_offered, account.collateral_decimals),
         )
-        bids = FullLiquidationPercentMAEStrategy(
-            DMAE, reseller.validate_position
-        ).construct_bids(account.positions)
+        skip, blocks_to_wait = account.wait_time_for(dmae, dmmu, mae_offered, account.auction_data.mmu_now)
+        if skip:
+            logger.info("%s - Delta MAE is too big", account.account_id)
+            continue
+        bid_possible, bids = strategy.construct_bids(account.auction_data.mae_at_initiation, account.positions)
+        if (not bid_possible) or (len(bids) == 0):
+            logger.info("%s - no valid bid constructed, skipping...", account.account_id)
+            continue
+
         mae_check_failed, mae_over_mmu_exceeded = clearing.mae_check_on_bid(
             w3.eth.default_account,
             account.account_id,
@@ -112,7 +122,6 @@ def main():
                 mae_over_mmu_exceeded,
             )
             continue
-        blocks_to_wait = account.wait_time_for(dmae, dmmu)
         logger.info(
             "%s - waiting for %s before liquidation",
             account.account_id,
