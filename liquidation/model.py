@@ -38,3 +38,12 @@ class Position(afp.bindings.PositionData):
     def notional_at_mark(self) -> Decimal:
         return Decimal(self.mark_price * abs(self.quantity) * self.point_value) / Decimal(10**self.tick_size)
 
+    def notional_at_price(self, price: int) -> Decimal:
+        return Decimal(price * abs(self.quantity) * self.point_value) / Decimal(10**self.tick_size)
+
+    # Returns the amount of MAE decreased with this `bid_price`
+    def dmae(self, bid_price: int) -> Decimal:
+        return (
+            self.notional_at_mark() - self.notional_at_price(bid_price) if self.quantity > 0
+            else self.notional_at_price(bid_price) - self.notional_at_mark()
+        )
