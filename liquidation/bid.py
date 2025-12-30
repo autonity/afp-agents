@@ -120,13 +120,11 @@ class FullLiquidationPercentMAEStrategy(BidStrategy):
             if not self.position_validator(position.position_id):
                 skip_bids.append(True)
                 continue
-            mark_price = position.mark_price
-            if mark_price == 0:
+            if position.mark_price == 0:
                 # just a safety check for further calculation
                 raise RuntimeError("Got zero mark price for position ", position.position_id)
 
-            quantity = position.quantity
-            if quantity > 0:
+            if position.quantity > 0:
                 sum_notional_long += position.notional_at_mark()
             else:
                 sum_notional_short += position.notional_at_mark()
@@ -157,6 +155,8 @@ class FullLiquidationPercentMAEStrategy(BidStrategy):
         for index, position in enumerate(positions):
             if skip_bids[index]:
                 continue
+            quantity = position.quantity
+            mark_price = position.mark_price
             side = afp.bindings.Side.BID if quantity > 0 else afp.bindings.Side.ASK
             bid_price = (
                 math.floor(
