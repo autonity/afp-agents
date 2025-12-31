@@ -19,12 +19,12 @@ class BidStrategy(ABC):
     """
 
     @abstractmethod
-    def construct_bids(self, mae_initial: int, positions: list[Position]) -> (bool, list[afp.bindings.BidData]):
+    def construct_bids(self, mae_initial: Decimal, positions: list[Position]) -> (bool, list[afp.bindings.BidData]):
         """
         Construct bids for the liquidating account based on its positions.
 
         Args:
-            mae_initial (int): Initial MAE of the account
+            mae_initial (Decimal): Initial MAE of the account without the collateral token precision
             positions (list[Position]): List of positions to construct bids for.
 
         Returns:
@@ -49,12 +49,12 @@ class FullLiquidationMarkPriceStrategy(BidStrategy):
         """
         self.position_validator = position_validator
 
-    def construct_bids(self, mae_initial: int, positions: list[Position]) -> (bool, list[afp.bindings.BidData]):
+    def construct_bids(self, mae_initial: Decimal, positions: list[Position]) -> (bool, list[afp.bindings.BidData]):
         """
         Construct bids for every position held by the liquidating account at the mark price.
 
         Args:
-            mae_initial (int): Initial MAE of the account
+            mae_initial (Decimal): Initial MAE of the account without the collateral token precision
             positions (list[Position]): List of positions to construct bids for.
 
         Returns:
@@ -100,12 +100,12 @@ class FullLiquidationPercentMAEStrategy(BidStrategy):
         self.percent_mae = percent_mae
         self.position_validator = position_validator
 
-    def construct_bids(self, mae_initial: int, positions: list[Position]) -> (bool, list[afp.bindings.BidData]):
+    def construct_bids(self, mae_initial: Decimal, positions: list[Position]) -> (bool, list[afp.bindings.BidData]):
         """
         Construct bids for full liquidation based on a percentage of the mark price.
 
         Args:
-            mae_initial (int): Initial MAE of the account
+            mae_initial (Decimal): Initial MAE of the account without the collateral token precision
             positions (list[Position]): List of positions to construct bids for.
 
         Returns:
@@ -138,7 +138,7 @@ class FullLiquidationPercentMAEStrategy(BidStrategy):
         # `percent_dmark_long * sum_notional_long + percent_dmark_short * sum_notional_short >= dmae`
         # we solve this assuming `percent_dmark_long = percent_dmark_short = percent_dmark`
         sum_notional = sum_notional_long + sum_notional_short
-        dmae: Decimal = Decimal(mae_initial) * self.percent_mae
+        dmae = mae_initial * self.percent_mae
         percent_dmark = dmae / sum_notional
 
         if percent_dmark > Decimal(1):
@@ -208,6 +208,6 @@ class OrderedPercentMAEStrategy(BidStrategy):
     def __init__(self, percent_mae: Decimal):
         self.percent_mae = percent_mae
 
-    def construct_bids(self, mae_initial: int, positions: list[Position]) -> (bool, list[afp.bindings.BidData]):
+    def construct_bids(self, mae_initial: Decimal, positions: list[Position]) -> (bool, list[afp.bindings.BidData]):
         # ToDo: bid the largest positions
         raise NotImplementedError("OrderedPercentMAEStrategy not implemented yet.")

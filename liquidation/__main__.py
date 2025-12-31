@@ -103,7 +103,13 @@ def main():
         if skip:
             logger.info("%s - Delta MAE is too big", account.account_id)
             continue
-        bid_possible, bids = strategy.construct_bids(account.auction_data.mae_at_initiation, account.positions)
+        bid_possible, bids = strategy.construct_bids(
+            format_int(
+                account.auction_data.mae_at_initiation,
+                account.collateral_decimals
+            ),
+            account.positions
+        )
         if (not bid_possible) or (len(bids) == 0):
             logger.info("%s - no valid bid constructed, skipping...", account.account_id)
             continue

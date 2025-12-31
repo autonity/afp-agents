@@ -13,6 +13,7 @@ from subquery.client import AutSubquery
 
 from .bid import BidStrategy
 from .model import Position, Step, TransactionStep
+from utils import format_int
 
 logger = logging.getLogger(__name__)
 
@@ -127,11 +128,14 @@ class LiquidatingAccountContext:
             Decimal: Mae delta after bid
             Decimal: Mmu delta after bid
         """
-        mae_at_initiation: int = 0
+        mae_at_initiation: Decimal = 0
         if self.is_liquidating:
-            mae_at_initiation = self.auction_data.mae_at_initiation
+            mae_at_initiation = format_int(self.auction_data.mae_at_initiation, self.collateral_decimals)
         else:
-            mae_at_initiation = afp.bindings.MarginAccount(self.w3, self.margin_account).mae(self.account_id)
+            mae_at_initiation = format_int(
+                afp.bindings.MarginAccount(self.w3, self.margin_account).mae(self.account_id),
+                self.collateral_decimals
+            )
         
         bid_possible, bids = strategy.construct_bids(mae_at_initiation, self.positions)
         if not bid_possible:
@@ -177,7 +181,13 @@ class LiquidatingAccountContext:
             logger.info("%s - liquidation already in progress", self.account_id)
             return False
         clearing = afp.bindings.ClearingDiamond(self.w3)
-        bid_possible, bids = strategy.construct_bids(self.auction_data.mae_at_initiation, self.positions)
+        bid_possible, bids = strategy.construct_bids(
+            format_int(
+                self.auction_data.mae_at_initiation,
+                self.collateral_decimals
+            ),
+            self.positions
+        )
         if (not bid_possible) or (len(bids) == 0):
             logger.info(
                 "%s - no valid bids constructed, skipping liquidation", self.account_id
