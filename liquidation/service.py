@@ -154,7 +154,7 @@ class LiquidatingAccountContext:
         tx_hash = fn.transact()
         receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
         # if the transaction is not successful, we skip this account
-        if receipt["status"] != 0:
+        if receipt['status'] != 1:
             return False, True, dmae, dmmu
         self.transaction_steps.append(
             TransactionStep(Step.REQUEST_LIQUIDATION, tx_hash)
