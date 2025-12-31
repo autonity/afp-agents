@@ -193,7 +193,7 @@ class LiquidatingAccountContext:
                 "%s - no valid bids constructed, skipping liquidation", self.account_id
             )
             return False
-        check_passed, = self._check_bids(bids)
+        check_passed, _, _ = self._check_bids(bids)
         if not check_passed:
             return False
 
