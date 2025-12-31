@@ -13,6 +13,7 @@ from subquery.client import AutSubquery
 
 from .bid import BidStrategy
 from .model import Position, Step, TransactionStep
+from utils import format_int
 
 logger = logging.getLogger(__name__)
 
@@ -117,33 +118,52 @@ class LiquidatingAccountContext:
         """
         return any(submitted.step == step for submitted in self.transaction_steps)
 
-    def start_liquidation(self, strategy: BidStrategy) -> (bool, Decimal, Decimal):
+    def start_liquidation(self, strategy: BidStrategy) -> (bool, bool, Decimal, Decimal):
         """
         Initiate liquidation for the account if not already in progress.
 
         Returns:
             bool: True if liquidation was started, False otherwise.
+            bool: True if liquidation initiation failed, False otherwise.
             Decimal: Mae delta after bid
             Decimal: Mmu delta after bid
         """
-        dmae, dmmu = self._check_bids(strategy.construct_bids(self.positions))
+        mae_at_initiation: Decimal = 0
         if self.is_liquidating:
-            return False, dmae, dmmu
+            mae_at_initiation = format_int(self.auction_data.mae_at_initiation, self.collateral_decimals)
+        else:
+            mae_at_initiation = format_int(
+                afp.bindings.MarginAccount(self.w3, self.margin_account).mae(self.account_id),
+                self.collateral_decimals
+            )
+        
+        bid_possible, bids = strategy.construct_bids(mae_at_initiation, self.positions)
+        if not bid_possible:
+            return False, True, 0, 0
+
+        check_passed, dmae, dmmu = self._check_bids(bids)
+        if not check_passed:
+            return False, True, dmae, dmmu
+        if self.is_liquidating:
+            return False, False, dmae, dmmu
         if self.is_transaction_submitted(Step.REQUEST_LIQUIDATION):
             logger.info("%s - liquidation already requested", self.account_id)
-            return False, dmae, dmmu
+            return False, False, dmae, dmmu
         clearing = afp.bindings.ClearingDiamond(self.w3)
         fn = clearing.request_liquidation(self.account_id, self.collateral_asset)
         tx_hash = fn.transact()
+        receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
+        # if the transaction is not successful, we skip this account
+        if receipt['status'] != 1:
+            return False, True, dmae, dmmu
         self.transaction_steps.append(
             TransactionStep(Step.REQUEST_LIQUIDATION, tx_hash)
         )
-        self.w3.eth.wait_for_transaction_receipt(tx_hash)
         self.is_liquidating = True
         self.auction_data = clearing.auction_data(
             self.account_id, self.collateral_asset
         )
-        return True, dmae, dmmu
+        return True, False, dmae, dmmu
 
     def bid_liquidation(self, strategy: BidStrategy) -> bool:
         """
@@ -161,13 +181,22 @@ class LiquidatingAccountContext:
             logger.info("%s - liquidation already in progress", self.account_id)
             return False
         clearing = afp.bindings.ClearingDiamond(self.w3)
-        bids = strategy.construct_bids(self.positions)
-        if len(bids) == 0:
+        bid_possible, bids = strategy.construct_bids(
+            format_int(
+                self.auction_data.mae_at_initiation,
+                self.collateral_decimals
+            ),
+            self.positions
+        )
+        if (not bid_possible) or (len(bids) == 0):
             logger.info(
                 "%s - no valid bids constructed, skipping liquidation", self.account_id
             )
             return False
-        self._check_bids(bids)
+        check_passed, _, _ = self._check_bids(bids)
+        if not check_passed:
+            return False
+
         fn = clearing.bid_auction(self.account_id, self.collateral_asset, bids)
         tx_hash = fn.transact()
         logger.info(
@@ -177,7 +206,12 @@ class LiquidatingAccountContext:
         )
         self.transaction_steps.append(TransactionStep(Step.BID_AUCTION, tx_hash))
         receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
-        logging.info(
+
+        if receipt['status'] != 1:
+            logger.info("%s - liquidation tx %s reverted", self.account_id, tx_hash.hex())
+            return False
+            
+        logger.info(
             "%s - liquidation tx mined in block %d",
             self.account_id,
             receipt["blockNumber"],
@@ -185,7 +219,7 @@ class LiquidatingAccountContext:
         logger.info("%s - liquidation processed", self.account_id)
         return True
 
-    def _check_bids(self, bids: list[afp.bindings.BidData]) -> (Decimal, Decimal):
+    def _check_bids(self, bids: list[afp.bindings.BidData]) -> (bool, Decimal, Decimal):
         margin_account = afp.bindings.MarginAccount(self.w3, self.margin_account)
         mae_before, mmu_before = (
             margin_account.mae(self.account_id),
@@ -212,6 +246,8 @@ class LiquidatingAccountContext:
             Decimal(mae_before - mae_after) / Decimal(10**self.collateral_decimals),
             Decimal(mmu_before - mmu_after) / Decimal(10**self.collateral_decimals),
         )
+        if mae_after < 0:
+            return False, dmae, dmmu
         logger.info(
             "%s - MAE after bid: %s, MMU after bid: %s",
             self.account_id,
@@ -222,36 +258,41 @@ class LiquidatingAccountContext:
             raise RuntimeError("MAE did not decrease after bid")
         if dmmu < Decimal(0):
             raise RuntimeError("MMU did not decrease after bid")
-        return dmae, dmmu
+        return True, dmae, dmmu
 
-    def wait_time_for(self, dmae: Decimal, dmmu: Decimal) -> int:
+    def wait_time_for(self, dmae: Decimal, dmmu: Decimal, max_mae_offered: int, mmu_now: int) -> (bool, int):
         """
         Calculate the remaining wait time for the auction based on delta MAE and delta MMU.
 
         Args:
             dmae (Decimal): Delta MAE value.
             dmmu (Decimal): Delta MMU value.
+            max_mae_offered (int): Max MAE offered
+            mmu_now (int): MMU available
 
         Returns:
+            bool: True if delta MAE is too big to wait
             int: Number of blocks left to wait for the auction.
         """
+        if dmae * Decimal(mmu_now) <= dmmu * Decimal(max_mae_offered):
+            return False, 0
+
         if self.auction_data is None:
             raise RuntimeError("Call populate() before calculating wait time.")
-        current_block = self.w3.eth.get_block("latest")["number"]
-        if current_block - self.auction_data.start_block > self.auction_duration:
-            # Auction duration has already passed
-            return 0
         tau = Decimal(self.auction_duration)
         mmu_0 = Decimal(self.auction_data.mmu_at_initiation)
         mae_0 = Decimal(self.auction_data.mae_at_initiation)
         t = (dmae * tau * mmu_0) / (dmmu * mae_0)
         blocks_to_wait = math.ceil(t)
+        if blocks_to_wait > tau:
+            return True, 0
 
         # this assumes 1 block per second
+        current_block = self.w3.eth.get_block("latest")["number"]
         blocks_left = blocks_to_wait - (current_block - self.auction_data.start_block)
         if blocks_left < 0:
-            return 0
-        return blocks_left
+            return False, 0
+        return False, blocks_left
 
 
 class LiquidationService:

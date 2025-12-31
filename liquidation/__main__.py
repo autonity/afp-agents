@@ -52,6 +52,7 @@ def main():
     strategy = FullLiquidationPercentMAEStrategy(DMAE, reseller.validate_position)
 
     logger.info("Found %d liquidatable accounts", len(accounts))
+    liquidated: list[LiquidatingAccountContext] = []
     for account in accounts:
         logger.info("%s - processing Liquidation", account.account_id)
         account.populate()
@@ -59,7 +60,11 @@ def main():
             "%s - number of positions %d", account.account_id, len(account.positions)
         )
 
-        liquidation_started, dmae, dmmu = account.start_liquidation(strategy)
+        liquidation_started, request_failed, dmae, dmmu = account.start_liquidation(strategy)
+        if request_failed:
+            logger.info("%s - cannot initiate liquidation, skipping...", account.account_id)
+            continue
+
         if liquidation_started:
             logger.info("%s - requested liquidation", account.account_id)
         else:
@@ -95,9 +100,28 @@ def main():
             account.account_id,
             format_int(mae_offered, account.collateral_decimals),
         )
-        bids = FullLiquidationPercentMAEStrategy(
-            DMAE, reseller.validate_position
-        ).construct_bids(account.positions)
+        skip, blocks_to_wait = account.wait_time_for(dmae, dmmu, mae_offered, account.auction_data.mmu_now)
+        if skip:
+            logger.info("%s - Delta MAE is too big", account.account_id)
+            continue
+        bid_possible, bids = strategy.construct_bids(
+            format_int(
+                account.auction_data.mae_at_initiation,
+                account.collateral_decimals
+            ),
+            account.positions
+        )
+        if (not bid_possible) or (len(bids) == 0):
+            logger.info("%s - no valid bid constructed, skipping...", account.account_id)
+            continue
+        logger.info(
+            "%s - waiting for %s blocks before liquidation",
+            account.account_id,
+            blocks_to_wait,
+        )
+        ## wait an extra block to ensure we are clear
+        wait_for_blocks(w3, blocks_to_wait + 1)
+
         mae_check_failed, mae_over_mmu_exceeded = clearing.mae_check_on_bid(
             w3.eth.default_account,
             account.account_id,
@@ -112,32 +136,29 @@ def main():
                 mae_over_mmu_exceeded,
             )
             continue
-        blocks_to_wait = account.wait_time_for(dmae, dmmu)
-        logger.info(
-            "%s - waiting for %s before liquidation",
-            account.account_id,
-            blocks_to_wait,
-        )
-        ## wait an extra block to ensure we are clear
-        wait_for_blocks(w3, blocks_to_wait + 1)
-        account.bid_liquidation(strategy)
+        if account.bid_liquidation(strategy):
+            liquidated.append(account)
 
-    if len(accounts) > 0:
-        content = f"Liquidation processed for {len(accounts)} margin accounts"
+    if len(liquidated) > 0:
+        content = f"Liquidation processed for {len(liquidated)} margin accounts"
         notify_data = [
             NotificationItem(
                 title=f"Account {account.account_id} liquidated",
                 values={
                     "Account ID": account.account_id,
                     "Collateral Asset": account.collateral_asset,
-                    "MMU (before)": Decimal(account.auction_data.mae_at_initiation)
-                    / Decimal(10**account.collateral_decimals),
-                    "MAE (before)": Decimal(account.auction_data.mae_at_initiation)
-                    / Decimal(10**account.collateral_decimals),
+                    "MMU (before)": format_int(
+                        account.auction_data.mmu_at_initiation,
+                        account.collateral_decimals
+                    ),
+                    "MAE (before)": format_int(
+                        account.auction_data.mae_at_initiation,
+                        account.collateral_decimals
+                    ),
                     "Positions": str(len(account.positions)),
                 },
             )
-            for account in accounts
+            for account in liquidated
         ]
         notifier.notify(
             "Margin Accounts Liquidated",
@@ -145,7 +166,7 @@ def main():
             notify_data,
         )
 
-    logger.info("Liquidation bids submitted for %d margin accounts", len(accounts))
+    logger.info("Liquidation bids submitted for %d margin accounts", len(liquidated))
     # Here we check all margin accounts for positions, just in case some accounts were not liquidated
     # in previous runs
     reseller.populate()
