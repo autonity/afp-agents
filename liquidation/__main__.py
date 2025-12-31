@@ -52,6 +52,7 @@ def main():
     strategy = FullLiquidationPercentMAEStrategy(DMAE, reseller.validate_position)
 
     logger.info("Found %d liquidatable accounts", len(accounts))
+    liquidated: list[LiquidatingAccountContext] = []
     for account in accounts:
         logger.info("%s - processing Liquidation", account.account_id)
         account.populate()
@@ -135,24 +136,29 @@ def main():
                 mae_over_mmu_exceeded,
             )
             continue
-        account.bid_liquidation(strategy)
+        if account.bid_liquidation(strategy):
+            liquidated.append(account)
 
-    if len(accounts) > 0:
-        content = f"Liquidation processed for {len(accounts)} margin accounts"
+    if len(liquidated) > 0:
+        content = f"Liquidation processed for {len(liquidated)} margin accounts"
         notify_data = [
             NotificationItem(
                 title=f"Account {account.account_id} liquidated",
                 values={
                     "Account ID": account.account_id,
                     "Collateral Asset": account.collateral_asset,
-                    "MMU (before)": Decimal(account.auction_data.mae_at_initiation)
-                    / Decimal(10**account.collateral_decimals),
-                    "MAE (before)": Decimal(account.auction_data.mae_at_initiation)
-                    / Decimal(10**account.collateral_decimals),
+                    "MMU (before)": format_int(
+                        account.auction_data.mmu_at_initiation,
+                        account.collateral_decimals
+                    ),
+                    "MAE (before)": format_int(
+                        account.auction_data.mae_at_initiation,
+                        account.collateral_decimals
+                    ),
                     "Positions": str(len(account.positions)),
                 },
             )
-            for account in accounts
+            for account in liquidated
         ]
         notifier.notify(
             "Margin Accounts Liquidated",
@@ -160,7 +166,7 @@ def main():
             notify_data,
         )
 
-    logger.info("Liquidation bids submitted for %d margin accounts", len(accounts))
+    logger.info("Liquidation bids submitted for %d margin accounts", len(liquidated))
     # Here we check all margin accounts for positions, just in case some accounts were not liquidated
     # in previous runs
     reseller.populate()
