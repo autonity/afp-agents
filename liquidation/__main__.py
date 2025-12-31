@@ -113,6 +113,13 @@ def main():
         if (not bid_possible) or (len(bids) == 0):
             logger.info("%s - no valid bid constructed, skipping...", account.account_id)
             continue
+        logger.info(
+            "%s - waiting for %s before liquidation",
+            account.account_id,
+            blocks_to_wait,
+        )
+        ## wait an extra block to ensure we are clear
+        wait_for_blocks(w3, blocks_to_wait + 1)
 
         mae_check_failed, mae_over_mmu_exceeded = clearing.mae_check_on_bid(
             w3.eth.default_account,
@@ -128,13 +135,6 @@ def main():
                 mae_over_mmu_exceeded,
             )
             continue
-        logger.info(
-            "%s - waiting for %s before liquidation",
-            account.account_id,
-            blocks_to_wait,
-        )
-        ## wait an extra block to ensure we are clear
-        wait_for_blocks(w3, blocks_to_wait + 1)
         account.bid_liquidation(strategy)
 
     if len(accounts) > 0:
