@@ -206,7 +206,12 @@ class LiquidatingAccountContext:
         )
         self.transaction_steps.append(TransactionStep(Step.BID_AUCTION, tx_hash))
         receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
-        logging.info(
+
+        if receipt['status'] != 1:
+            logger.info("%s - liquidation tx %s reverted", self.account_id, tx_hash.hex())
+            return False
+            
+        logger.info(
             "%s - liquidation tx mined in block %d",
             self.account_id,
             receipt["blockNumber"],

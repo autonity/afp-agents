@@ -115,7 +115,7 @@ def main():
             logger.info("%s - no valid bid constructed, skipping...", account.account_id)
             continue
         logger.info(
-            "%s - waiting for %s before liquidation",
+            "%s - waiting for %s blocks before liquidation",
             account.account_id,
             blocks_to_wait,
         )
