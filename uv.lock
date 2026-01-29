@@ -32,7 +32,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "afp-sdk", specifier = "==0.4.0" },
+    { name = "afp-sdk", git = "https://github.com/autonity/afp-sdk?rev=v0.6.0-rc.3" },
     { name = "gql", extras = ["all"], specifier = ">=3.5.3" },
     { name = "slack-sdk", specifier = ">=3.36.0" },
     { name = "web3", specifier = ">=7.12.0" },
@@ -48,8 +48,8 @@ dev = [
 
 [[package]]
 name = "afp-sdk"
-version = "0.4.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.5.4"
+source = { git = "https://github.com/autonity/afp-sdk?rev=v0.6.0-rc.3#142f4ba9588afd01c3884ca4d8d4723523f92621" }
 dependencies = [
     { name = "decorator" },
     { name = "inflection" },
@@ -57,10 +57,6 @@ dependencies = [
     { name = "requests" },
     { name = "siwe" },
     { name = "web3" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/74/70/78c625276a10636a80d08149741f723002a31191df00a0ac62965c4422b6/afp_sdk-0.4.0.tar.gz", hash = "sha256:32da64d5fce564509fddeedc9ab8f50fe8d371101b5baa656af16341f2d1d041", size = 131899, upload-time = "2025-09-17T09:20:51.887Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/e8/63/af1d587515afab3c7f46bc49cac21784a43dbd1c7bda3efd2f69722eeb71/afp_sdk-0.4.0-py3-none-any.whl", hash = "sha256:e65b49acda665d59eb06091f52da92b3c3cb0c84bec230499ff376b69978d00e", size = 55640, upload-time = "2025-09-17T09:20:50.462Z" },
 ]
 
 [[package]]

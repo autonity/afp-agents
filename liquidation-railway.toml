@@ -1,8 +1,0 @@
-[build]
-builder = "RAILPACK"
-watchPatterns = ["liquidation/*", "pyproject.toml"]
-
-[deploy]
-startCommand = "uv run -m liquidation"
-restartPolicyType = "NEVER"
-cronSchedule = "*/5 * * * *"
