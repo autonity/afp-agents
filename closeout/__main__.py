@@ -29,6 +29,8 @@ notifier = get_notifier()
 
 
 def main():
+    logger.info("Starting closeout agent: connecting to RPC %s", RPC_URL)
+    logger.info("Using Subquery endpoint: %s", SUBQUERY_URL)
     sq = AutSubquery(url=SUBQUERY_URL)
     w3 = Web3(HTTPProvider(RPC_URL))
     signer = Account.from_key(PRIVATE_KEY)
