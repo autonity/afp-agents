@@ -52,27 +52,31 @@ def accounts_in_product_query() -> (DocumentNode, Callable[[Dict[str, Any]], Lis
     return query, parser
 
 
-def products_with_fsp_passed_query(
-    current_timestamp: int,
-) -> (DocumentNode, Callable[[Dict[str, any]], List[ProductInfo]]):
-    query = gql(f"""
-        {{
-            products(filter: {{
-                earliestFSPSubmissionTime: {{lessThan: "{current_timestamp}"}}
-            }}) {{
-                nodes {{
+def products_with_fsp_passed_query() -> (DocumentNode, Callable[[Dict[str, any]], List[ProductInfo]]):
+    query = gql("""
+        query($currentTimestamp: BigFloat!, $first: Int!, $after: Cursor) {
+            products(
+                filter: {earliestFSPSubmissionTime: {lessThan: $currentTimestamp}}
+                first: $first
+                after: $after
+            ) {
+                nodes {
                     id
                     symbol
                     state
                     earliestFSPSubmissionTime
                     tradeoutInterval
-                    fsp {{
+                    fsp {
                         fsp
                         blockNumber
-                    }}
-                }}
-            }}
-        }}
+                    }
+                }
+                pageInfo {
+                    hasNextPage
+                    endCursor
+                }
+            }
+        }
         """)
 
     def parser(result: Dict[str, Any]) -> List[ProductInfo]:

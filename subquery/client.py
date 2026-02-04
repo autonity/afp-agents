@@ -59,7 +59,7 @@ class AutSubquery:
         return results
 
     def products_with_fsp_passed(self, current_timestamp: int) -> List[ProductInfo]:
-        """Retrieves all products whose FSP submission time has passed.
+        """Retrieves all products whose FSP submission time has passed
 
         Parameters
         ----------
@@ -69,7 +69,21 @@ class AutSubquery:
         Returns
         -------
         list[ProductInfo]
-            A list of products with FSP submission time passed.
+            A combined list of ProductInfo objects for all pages.
         """
-        query, parser = products_with_fsp_passed_query(current_timestamp)
-        return parser(self.client.execute(query))
+        query, parser = products_with_fsp_passed_query()
+        results: List[ProductInfo] = []
+        after: Optional[str] = None
+        page_size = 50
+
+        while True:
+            variables = {"currentTimestamp": str(current_timestamp), "first": page_size, "after": after}
+            resp = self.client.execute(query, variable_values=variables)
+            results.extend(parser(resp))
+
+            page_info = resp["products"].get("pageInfo", {})
+            if not page_info.get("hasNextPage"):
+                break
+            after = page_info.get("endCursor")
+
+        return results
