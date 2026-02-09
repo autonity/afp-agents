@@ -187,9 +187,6 @@ class CloseoutService:
             if not finalized:
                 logger.info("%s - FSP not submitted, cannot close out", product.name)
                 continue
-            if fsp == 0:
-                logger.info("%s - FSP zero, cannot close out", product.name)
-                continue
             finalized_time = clearing.get_fsp_finalization_time(HexBytes(product.id))
             if finalized_time + product.tradeout_interval > now:
                 logger.info(
